@@ -1,0 +1,15 @@
+{
+  "extractedAt": "2026-07-13T17:29:05.647739+00:00",
+  "source": "https://api.gbif.org/v1/occurrence/search",
+  "query": {
+    "scientificName": "Oreochromis niloticus",
+    "taxonKey": 4285694,
+    "country": "BR",
+    "hasCoordinate": true
+  },
+  "matchedScientificName": "Oreochromis niloticus (Linnaeus, 1758)",
+  "recordsCollected": 590,
+  "recordsAvailable": 590,
+  "pagesRequested": 2,
+  "dataFile": "ocorrencias_tilapia.csv"
+}
