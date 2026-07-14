@@ -4,6 +4,8 @@ __pycache__/
 *.pyc
 .env
 data/raw/*.csv
+data/raw/*.jsonl
+data/raw/*_metadata.json
 data/processed/*.csv
 data/processed/*.png
 data/processed/*_metadata.json

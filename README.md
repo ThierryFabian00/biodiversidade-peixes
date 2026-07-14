@@ -4,7 +4,7 @@ Pipeline de dados para coleta, tratamento e análise de registros de ocorrência
 
 ## Objetivo
 
-Analisar a distribuição geográfica e temporal de espécies de peixes na porção brasileira da Região Hidrográfica do Paraná, usando inicialmente registros de *Oreochromis niloticus*.
+Analisar a distribuição geográfica, temporal, taxonômica e de origem de espécies de peixes na porção brasileira da Região Hidrográfica do Paraná.
 
 ## Tecnologias
 
@@ -55,6 +55,28 @@ python src/filter_basin.py
 
 O filtro gera o CSV regional, um JSON com o resumo da operação e um mapa para validação visual em `data/processed/`. A fonte, o recorte adotado, a licença e os sistemas de coordenadas estão descritos em [docs/FONTE_GEOGRAFICA.md](docs/FONTE_GEOGRAFICA.md).
 
+### Coleta multiespécies
+
+Com o limite geográfico preparado, execute a coleta de peixes e a normalização taxonômica da Etapa 5:
+
+```powershell
+python -m src.extract_fish
+python -m src.transform_fish
+```
+
+A coleta usa cinco grupos taxonômicos de peixes, a taxonomia Catalogue of Life e um casco convexo do limite apenas como pré-filtro da API. O recorte exato da Região Hidrográfica do Paraná é aplicado localmente.
+
+Por padrão, `extract_fish` coleta uma amostra reproduzível de até 5.000 ocorrências, pois a consulta atual possui mais de 100.000 resultados e precisa do serviço assíncrono de download do GBIF, com DOI, para ser obtida integralmente. O limite da amostra pode ser alterado com `--max-registros`.
+
+Os principais resultados são:
+
+- `data/processed/ocorrencias_peixes_bacia_parana.csv`: ocorrências normalizadas dentro da bacia;
+- `data/processed/especies_bacia_parana.csv`: síntese por espécie, incluindo origem e evidências;
+- `data/processed/problemas_taxonomicos_peixes.csv`: registros sem identificação em nível de espécie;
+- `data/processed/pipeline_multiespecies_metadata.json`: filtros, contagens e indicação de completude.
+
+As decisões taxonômicas e os critérios de origem estão descritos em [docs/TAXONOMIA_E_ORIGEM.md](docs/TAXONOMIA_E_ORIGEM.md).
+
 Execute os testes com:
 
 ```powershell
@@ -66,5 +88,6 @@ python -m unittest discover -s tests -v
 - Extração paginada e configurável implementada.
 - Limpeza e transformação inicial implementadas.
 - Delimitação geográfica oficial da porção brasileira implementada.
-- Dos 590 registros atuais, 270 estão dentro da Região Hidrográfica do Paraná.
-- Próxima etapa: ampliar a coleta para várias espécies de peixes.
+- Coleta multiespécies, normalização taxonômica e classificação conservadora de origem implementadas.
+- Na amostra atual de 5.000 registros, 3.792 ocorrências de 356 espécies estão dentro da Região Hidrográfica do Paraná; 555 registros sem identificação em nível de espécie foram separados para auditoria.
+- Próxima etapa: análise exploratória espacial, temporal e taxonômica dos dados consolidados.
