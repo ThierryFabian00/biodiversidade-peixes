@@ -4,14 +4,17 @@ Pipeline de dados para coleta, tratamento e análise de registros de ocorrência
 
 ## Objetivo
 
-Analisar a distribuição geográfica e temporal de espécies de peixes, com foco futuro na bacia do rio Paraná e usando inicialmente registros brasileiros de *Oreochromis niloticus*.
+Analisar a distribuição geográfica e temporal de espécies de peixes na porção brasileira da Região Hidrográfica do Paraná, usando inicialmente registros de *Oreochromis niloticus*.
 
 ## Tecnologias
 
 - Python
 - Pandas
+- GeoPandas
+- Matplotlib
 - Requests
 - API do GBIF
+- Divisão Hidrográfica Nacional DHN250/IBGE
 
 ## Como executar
 
@@ -43,6 +46,15 @@ Em seguida, execute a transformação:
 python src/transform.py
 ```
 
+Prepare o limite oficial da Região Hidrográfica do Paraná e aplique o filtro espacial:
+
+```powershell
+python src/prepare_boundary.py
+python src/filter_basin.py
+```
+
+O filtro gera o CSV regional, um JSON com o resumo da operação e um mapa para validação visual em `data/processed/`. A fonte, o recorte adotado, a licença e os sistemas de coordenadas estão descritos em [docs/FONTE_GEOGRAFICA.md](docs/FONTE_GEOGRAFICA.md).
+
 Execute os testes com:
 
 ```powershell
@@ -53,4 +65,6 @@ python -m unittest discover -s tests -v
 
 - Extração paginada e configurável implementada.
 - Limpeza e transformação inicial implementadas.
-- Próxima etapa: definir e aplicar a delimitação geográfica da bacia do rio Paraná.
+- Delimitação geográfica oficial da porção brasileira implementada.
+- Dos 590 registros atuais, 270 estão dentro da Região Hidrográfica do Paraná.
+- Próxima etapa: ampliar a coleta para várias espécies de peixes.

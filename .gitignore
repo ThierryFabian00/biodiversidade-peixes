@@ -5,3 +5,6 @@ __pycache__/
 .env
 data/raw/*.csv
 data/processed/*.csv
+data/processed/*.png
+data/processed/*_metadata.json
+data/geographic/
