@@ -243,7 +243,7 @@ def transformar_registros(
     ocorrencias = ocorrencias.drop_duplicates(subset="gbifID", keep="first")
     ocorrencias["eventDateOriginal"] = ocorrencias["eventDate"]
     ocorrencias["eventDate"] = pd.to_datetime(
-        ocorrencias["eventDate"], errors="coerce", utc=True
+        ocorrencias["eventDate"], errors="coerce", utc=True, format="mixed"
     )
     ocorrencias["year"] = ocorrencias["eventDate"].dt.year.astype("Int64")
     ocorrencias["month"] = ocorrencias["eventDate"].dt.month.astype("Int64")

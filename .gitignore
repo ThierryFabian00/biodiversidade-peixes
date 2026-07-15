@@ -9,4 +9,5 @@ data/raw/*_metadata.json
 data/processed/*.csv
 data/processed/*.png
 data/processed/*_metadata.json
+data/analysis/
 data/geographic/

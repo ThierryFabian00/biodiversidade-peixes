@@ -77,6 +77,18 @@ Os principais resultados são:
 
 As decisões taxonômicas e os critérios de origem estão descritos em [docs/TAXONOMIA_E_ORIGEM.md](docs/TAXONOMIA_E_ORIGEM.md).
 
+### Análise exploratória
+
+Execute a Etapa 6 depois de gerar as tabelas multiespécies:
+
+```powershell
+python -m src.analysis
+```
+
+O comando cria em `data/analysis/` rankings, séries anuais e mensais, distribuição por unidade administrativa e tipo de registro, relatório de qualidade, candidatos a duplicidade, mapa de ocorrências e grade de lacunas espaciais. A pasta é reproduzível e não é versionada.
+
+O notebook [notebooks/01_analise_exploratoria.ipynb](notebooks/01_analise_exploratoria.ipynb) executa o mesmo módulo e apresenta os resultados em sequência. As interpretações e limitações da amostra estão documentadas em [docs/ANALISE_EXPLORATORIA.md](docs/ANALISE_EXPLORATORIA.md).
+
 Execute os testes com:
 
 ```powershell
@@ -90,4 +102,5 @@ python -m unittest discover -s tests -v
 - Delimitação geográfica oficial da porção brasileira implementada.
 - Coleta multiespécies, normalização taxonômica e classificação conservadora de origem implementadas.
 - Na amostra atual de 5.000 registros, 3.792 ocorrências de 356 espécies estão dentro da Região Hidrográfica do Paraná; 555 registros sem identificação em nível de espécie foram separados para auditoria.
-- Próxima etapa: análise exploratória espacial, temporal e taxonômica dos dados consolidados.
+- Análise exploratória espacial, temporal, taxonômica e de qualidade implementada com notebook reproduzível.
+- Próxima etapa: modelagem e carregamento dos dados em PostgreSQL.

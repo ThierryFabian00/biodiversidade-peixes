@@ -130,6 +130,19 @@ class TestTransformacaoPeixes(unittest.TestCase):
         self.assertEqual(resumo["outside"], 1)
         self.assertTrue(problemas.empty)
 
+    def test_converte_datas_com_formatos_mistos(self):
+        primeiro = registro_especie(1)
+        segundo = registro_especie(2)
+        primeiro["eventDate"] = "2020-01-02"
+        segundo["eventDate"] = "2021-03-04T12:30:00"
+
+        ocorrencias, _, _, _ = transformar_registros(
+            [primeiro, segundo], self.limite
+        )
+
+        self.assertEqual(ocorrencias["year"].tolist(), [2020, 2021])
+        self.assertEqual(ocorrencias["month"].tolist(), [1, 3])
+
     def test_classifica_origem_sem_inferir_ausencia(self):
         self.assertEqual(classificar_origem([]), "UNKNOWN")
         self.assertEqual(classificar_origem(["NATIVE"]), "NATIVE")
