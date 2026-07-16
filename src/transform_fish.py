@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -10,22 +11,17 @@ import pandas as pd
 from src.extract_fish import ARQUIVO_SAIDA as ARQUIVO_ENTRADA
 from src.extract_fish import CHECKLIST_COL, GRUPOS_PEIXES
 from src.filter_basin import ARQUIVO_LIMITE, carregar_limite, classificar_ocorrencias
+from src.logging_config import configurar_logging
+
+LOGGER = logging.getLogger(__name__)
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
 ARQUIVO_OCORRENCIAS = (
-    PASTA_PROJETO
-    / "data"
-    / "processed"
-    / "ocorrencias_peixes_bacia_parana.csv"
+    PASTA_PROJETO / "data" / "processed" / "ocorrencias_peixes_bacia_parana.csv"
 )
-ARQUIVO_ESPECIES = (
-    PASTA_PROJETO / "data" / "processed" / "especies_bacia_parana.csv"
-)
+ARQUIVO_ESPECIES = PASTA_PROJETO / "data" / "processed" / "especies_bacia_parana.csv"
 ARQUIVO_PROBLEMAS = (
-    PASTA_PROJETO
-    / "data"
-    / "processed"
-    / "problemas_taxonomicos_peixes.csv"
+    PASTA_PROJETO / "data" / "processed" / "problemas_taxonomicos_peixes.csv"
 )
 ARQUIVO_REFERENCIA_ORIGEM = (
     PASTA_PROJETO / "data" / "reference" / "introduced_fish_brazil.csv"
@@ -60,8 +56,7 @@ def extrair_hierarquia(classificacao: dict[str, Any]) -> dict[str, Any]:
 
 def identificar_grupo(classificacao: dict[str, Any]) -> str | None:
     chaves = {
-        str(taxon.get("key"))
-        for taxon in classificacao.get("classification", [])
+        str(taxon.get("key")) for taxon in classificacao.get("classification", [])
     }
     chaves.add(str(classificacao.get("usage", {}).get("key")))
     for nome, chave in GRUPOS_PEIXES.items():
@@ -109,10 +104,13 @@ def normalizar_registro(
         "locality": registro.get("locality"),
         "basisOfRecord": registro.get("basisOfRecord"),
         "datasetKey": registro.get("datasetKey"),
+        "datasetName": registro.get("datasetName"),
+        "publishingOrgKey": registro.get("publishingOrgKey"),
+        "institutionCode": registro.get("institutionCode"),
+        "license": registro.get("license"),
+        "references": registro.get("references"),
         "occurrenceStatus": registro.get("occurrenceStatus"),
-        "establishmentMeans": valor_vocabulario(
-            registro.get("establishmentMeans")
-        ),
+        "establishmentMeans": valor_vocabulario(registro.get("establishmentMeans")),
         "degreeOfEstablishment": valor_vocabulario(
             registro.get("degreeOfEstablishment")
         ),
@@ -125,8 +123,7 @@ def normalizar_registro(
 def classificar_origem(valores: Iterable[str]) -> str:
     termos = {str(valor).upper() for valor in valores if pd.notna(valor)}
     introduzida = any(
-        termo in {"INTRODUCED", "INVASIVE", "NATURALISED", "EXOTIC"}
-        for termo in termos
+        termo in {"INTRODUCED", "INVASIVE", "NATURALISED", "EXOTIC"} for termo in termos
     )
     nativa = "NATIVE" in termos
     if introduzida and nativa:
@@ -294,9 +291,7 @@ def salvar_tabelas(
     if metadados_extracao:
         metadados.update(
             {
-                "sourceRecordsCollected": metadados_extracao.get(
-                    "recordsCollected"
-                ),
+                "sourceRecordsCollected": metadados_extracao.get("recordsCollected"),
                 "sourceRecordsAvailable": metadados_extracao.get(
                     "recordsAvailableInPrefilter"
                 ),
@@ -327,11 +322,13 @@ def criar_parser() -> argparse.ArgumentParser:
         type=Path,
         default=ARQUIVO_REFERENCIA_ORIGEM,
     )
+    parser.add_argument("--verbose", action="store_true")
     return parser
 
 
 def main() -> None:
     argumentos = criar_parser().parse_args()
+    configurar_logging(argumentos.verbose)
     registros = carregar_jsonl(argumentos.entrada)
     caminho_metadados_entrada = argumentos.entrada.with_name(
         f"{argumentos.entrada.stem}_metadata.json"
@@ -355,13 +352,13 @@ def main() -> None:
         metadados_extracao,
     )
 
-    print(f"Registros brutos: {len(registros)}")
-    print(f"Registros normalizados: {resumo['normalized']}")
-    print(f"Registros dentro da bacia: {resumo['inside']}")
-    print(f"Espécies distintas: {len(especies)}")
-    print(f"Problemas taxonômicos: {len(problemas)}")
-    print(f"Tabela de ocorrências: {argumentos.ocorrencias}")
-    print(f"Tabela de espécies: {argumentos.especies}")
+    LOGGER.info("Registros brutos: %s", len(registros))
+    LOGGER.info("Registros normalizados: %s", resumo["normalized"])
+    LOGGER.info("Registros dentro da bacia: %s", resumo["inside"])
+    LOGGER.info("Espécies distintas: %s", len(especies))
+    LOGGER.info("Problemas taxonômicos: %s", len(problemas))
+    LOGGER.info("Tabela de ocorrências: %s", argumentos.ocorrencias)
+    LOGGER.info("Tabela de espécies: %s", argumentos.especies)
 
 
 if __name__ == "__main__":

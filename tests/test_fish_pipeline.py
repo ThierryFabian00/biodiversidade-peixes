@@ -33,6 +33,8 @@ def registro_especie(chave, longitude=5, latitude=5, rank="SPECIES"):
     return {
         "key": chave,
         "scientificName": "Pimelodus maculatus Lacépède, 1803",
+        "license": "http://creativecommons.org/licenses/by/4.0/legalcode",
+        "datasetName": "Dataset de teste",
         "decimalLongitude": longitude,
         "decimalLatitude": latitude,
         "eventDate": "2020-01-02",
@@ -109,6 +111,8 @@ class TestTransformacaoPeixes(unittest.TestCase):
         self.assertEqual(normalizado["speciesKey"], "SP1")
         self.assertEqual(normalizado["family"], "Pimelodidae")
         self.assertEqual(normalizado["fishGroup"], "Actinopterygii")
+        self.assertEqual(normalizado["datasetName"], "Dataset de teste")
+        self.assertIn("creativecommons.org/licenses/by/4.0", normalizado["license"])
 
     def test_rejeita_identificacao_acima_de_especie(self):
         _, problema = normalizar_registro(registro_especie(1, rank="GENUS"))
@@ -136,9 +140,7 @@ class TestTransformacaoPeixes(unittest.TestCase):
         primeiro["eventDate"] = "2020-01-02"
         segundo["eventDate"] = "2021-03-04T12:30:00"
 
-        ocorrencias, _, _, _ = transformar_registros(
-            [primeiro, segundo], self.limite
-        )
+        ocorrencias, _, _, _ = transformar_registros([primeiro, segundo], self.limite)
 
         self.assertEqual(ocorrencias["year"].tolist(), [2020, 2021])
         self.assertEqual(ocorrencias["month"].tolist(), [1, 3])
@@ -163,9 +165,7 @@ class TestTransformacaoPeixes(unittest.TestCase):
             ]
         )
 
-        _, especies, _, _ = transformar_registros(
-            [registro], self.limite, referencia
-        )
+        _, especies, _, _ = transformar_registros([registro], self.limite, referencia)
 
         self.assertEqual(especies.iloc[0]["originStatus"], "INTRODUCED")
         self.assertEqual(especies.iloc[0]["originSource"], "Fonte oficial")
@@ -185,9 +185,7 @@ class TestTransformacaoPeixes(unittest.TestCase):
             ]
         )
 
-        _, especies, _, _ = transformar_registros(
-            [registro], self.limite, referencia
-        )
+        _, especies, _, _ = transformar_registros([registro], self.limite, referencia)
 
         self.assertEqual(especies.iloc[0]["originEvidence"], "Pimelodus maculatus")
 

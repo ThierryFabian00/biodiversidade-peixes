@@ -148,9 +148,7 @@ def buscar_ocorrencias(
 
         registros.extend(pagina)
 
-        atingiu_limite = (
-            max_registros is not None and len(registros) >= max_registros
-        )
+        atingiu_limite = max_registros is not None and len(registros) >= max_registros
         fim_dos_registros = bool(dados.get("endOfRecords"))
         if atingiu_limite or fim_dos_registros or not pagina:
             break
@@ -197,9 +195,7 @@ def salvar_resultados(
         "pagesRequested": resultado.paginas_consultadas,
         "dataFile": caminho_saida.name,
     }
-    caminho_metadados = caminho_saida.with_name(
-        f"{caminho_saida.stem}_metadata.json"
-    )
+    caminho_metadados = caminho_saida.with_name(f"{caminho_saida.stem}_metadata.json")
     caminho_metadados.write_text(
         json.dumps(metadados, ensure_ascii=False, indent=2),
         encoding="utf-8",

@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,11 +17,12 @@ from src.extract import (
     criar_sessao,
 )
 from src.filter_basin import ARQUIVO_LIMITE, carregar_limite
+from src.logging_config import configurar_logging
+
+LOGGER = logging.getLogger(__name__)
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
-ARQUIVO_SAIDA = (
-    PASTA_PROJETO / "data" / "raw" / "ocorrencias_peixes_amostra.jsonl"
-)
+ARQUIVO_SAIDA = PASTA_PROJETO / "data" / "raw" / "ocorrencias_peixes_amostra.jsonl"
 CHECKLIST_COL = "7ddf754f-d193-4cc9-b351-99906754a03b"
 MAX_REGISTROS_PADRAO = 5_000
 
@@ -87,7 +89,7 @@ def buscar_ocorrencias_peixes(
     while len(registros) < max_registros:
         limite = min(tamanho_pagina, max_registros - len(registros))
         parametros = [
-            *(('taxonKey', chave) for chave in GRUPOS_PEIXES.values()),
+            *(("taxonKey", chave) for chave in GRUPOS_PEIXES.values()),
             ("checklistKey", CHECKLIST_COL),
             ("geometry", geometria_wkt),
             ("hasCoordinate", "true"),
@@ -140,9 +142,7 @@ def salvar_resultado(
             "amostra; uma base completa exige GBIF Occurrence Download com DOI."
         ),
     }
-    caminho_metadados = caminho_saida.with_name(
-        f"{caminho_saida.stem}_metadata.json"
-    )
+    caminho_metadados = caminho_saida.with_name(f"{caminho_saida.stem}_metadata.json")
     caminho_metadados.write_text(
         json.dumps(metadados, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -165,11 +165,13 @@ def criar_parser() -> argparse.ArgumentParser:
         type=int,
         default=TAMANHO_MAXIMO_PAGINA,
     )
+    parser.add_argument("--verbose", action="store_true")
     return parser
 
 
 def main() -> None:
     argumentos = criar_parser().parse_args()
+    configurar_logging(argumentos.verbose)
     limite = carregar_limite(argumentos.limite)
     geometria_wkt = criar_prefiltro_wkt(limite)
     resultado = buscar_ocorrencias_peixes(
@@ -184,10 +186,10 @@ def main() -> None:
         argumentos.max_registros,
     )
 
-    print(f"Registros disponíveis no pré-filtro: {resultado.total_disponivel}")
-    print(f"Registros coletados na amostra: {len(resultado.registros)}")
-    print(f"Páginas consultadas: {resultado.paginas_consultadas}")
-    print(f"JSONL bruto salvo em: {argumentos.saida}")
+    LOGGER.info("Registros disponíveis no pré-filtro: %s", resultado.total_disponivel)
+    LOGGER.info("Registros coletados na amostra: %s", len(resultado.registros))
+    LOGGER.info("Páginas consultadas: %s", resultado.paginas_consultadas)
+    LOGGER.info("JSONL bruto salvo em: %s", argumentos.saida)
 
 
 if __name__ == "__main__":

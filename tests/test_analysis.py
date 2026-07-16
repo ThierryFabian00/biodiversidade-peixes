@@ -98,9 +98,7 @@ class TestAnaliseExploratoria(unittest.TestCase):
             resumos["registros_por_ano"]["occurrenceCount"].tolist(),
             [2, 0, 1],
         )
-        self.assertEqual(
-            resumos["registros_por_mes"].loc[0, "occurrenceCount"], 2
-        )
+        self.assertEqual(resumos["registros_por_mes"].loc[0, "occurrenceCount"], 2)
         self.assertEqual(
             resumos["registros_por_estado"].iloc[0]["stateProvince"],
             "Sao Paulo",

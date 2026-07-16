@@ -89,7 +89,9 @@ def criar_parser() -> argparse.ArgumentParser:
         description="Executa consultas analiticas no PostgreSQL."
     )
     parser.add_argument("--consulta", choices=CONSULTAS, default="resumo")
-    parser.add_argument("--termo", help="Parte do nome cientifico para a consulta especie.")
+    parser.add_argument(
+        "--termo", help="Parte do nome cientifico para a consulta especie."
+    )
     parser.add_argument("--limite", type=int, default=20)
     parser.add_argument("--schema", default=None)
     parser.add_argument("--env-file", type=Path, default=ARQUIVO_ENV)
@@ -99,9 +101,7 @@ def criar_parser() -> argparse.ArgumentParser:
 def main() -> None:
     argumentos = criar_parser().parse_args()
     load_dotenv(argumentos.env_file)
-    schema = validar_schema(
-        argumentos.schema or os.getenv("DB_SCHEMA", SCHEMA_PADRAO)
-    )
+    schema = validar_schema(argumentos.schema or os.getenv("DB_SCHEMA", SCHEMA_PADRAO))
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise SystemExit(

@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import logging
 import os
 import re
 from collections.abc import Iterable, Sequence
@@ -11,9 +12,11 @@ import pandas as pd
 import psycopg
 from dotenv import load_dotenv
 
+from src.logging_config import configurar_logging
 from src.transform_fish import ARQUIVO_ESPECIES, ARQUIVO_OCORRENCIAS
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
+LOGGER = logging.getLogger(__name__)
 ARQUIVO_ENV = PASTA_PROJETO / ".env"
 SCHEMA_PADRAO = "biodiversity"
 TAMANHO_LOTE_PADRAO = 500
@@ -74,7 +77,8 @@ INSERT INTO {schema}.occurrences (
     gbif_id, species_key, scientific_name, taxonomic_status,
     decimal_latitude, decimal_longitude, event_date, event_date_original,
     event_year, event_month, state_province, locality, basis_of_record,
-    dataset_key, occurrence_status, establishment_means,
+    dataset_key, dataset_name, publishing_org_key, institution_code,
+    license, references_url, occurrence_status, establishment_means,
     degree_of_establishment, taxonomic_issues, occurrence_issues,
     inside_basin
 ) VALUES (
@@ -82,7 +86,9 @@ INSERT INTO {schema}.occurrences (
     %(taxonomic_status)s, %(decimal_latitude)s, %(decimal_longitude)s,
     %(event_date)s, %(event_date_original)s, %(event_year)s,
     %(event_month)s, %(state_province)s, %(locality)s,
-    %(basis_of_record)s, %(dataset_key)s, %(occurrence_status)s,
+    %(basis_of_record)s, %(dataset_key)s, %(dataset_name)s,
+    %(publishing_org_key)s, %(institution_code)s, %(license)s,
+    %(references_url)s, %(occurrence_status)s,
     %(establishment_means)s, %(degree_of_establishment)s,
     %(taxonomic_issues)s, %(occurrence_issues)s, %(inside_basin)s
 )
@@ -100,6 +106,11 @@ ON CONFLICT (gbif_id) DO UPDATE SET
     locality = EXCLUDED.locality,
     basis_of_record = EXCLUDED.basis_of_record,
     dataset_key = EXCLUDED.dataset_key,
+    dataset_name = EXCLUDED.dataset_name,
+    publishing_org_key = EXCLUDED.publishing_org_key,
+    institution_code = EXCLUDED.institution_code,
+    license = EXCLUDED.license,
+    references_url = EXCLUDED.references_url,
     occurrence_status = EXCLUDED.occurrence_status,
     establishment_means = EXCLUDED.establishment_means,
     degree_of_establishment = EXCLUDED.degree_of_establishment,
@@ -171,6 +182,11 @@ def criar_comandos_schema(schema: str) -> list[str]:
             locality TEXT,
             basis_of_record TEXT,
             dataset_key TEXT,
+            dataset_name TEXT,
+            publishing_org_key TEXT,
+            institution_code TEXT,
+            license TEXT,
+            references_url TEXT,
             occurrence_status TEXT,
             establishment_means TEXT,
             degree_of_establishment TEXT,
@@ -180,6 +196,14 @@ def criar_comandos_schema(schema: str) -> list[str]:
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
+        """,
+        f"""
+        ALTER TABLE {schema}.occurrences
+            ADD COLUMN IF NOT EXISTS dataset_name TEXT,
+            ADD COLUMN IF NOT EXISTS publishing_org_key TEXT,
+            ADD COLUMN IF NOT EXISTS institution_code TEXT,
+            ADD COLUMN IF NOT EXISTS license TEXT,
+            ADD COLUMN IF NOT EXISTS references_url TEXT
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {schema}.load_runs (
@@ -299,9 +323,7 @@ def _data_utc(valor: Any) -> datetime | None:
     return data.to_pydatetime()
 
 
-def validar_tabela(
-    dados: pd.DataFrame, colunas: set[str], nome: str
-) -> None:
+def validar_tabela(dados: pd.DataFrame, colunas: set[str], nome: str) -> None:
     ausentes = colunas.difference(dados.columns)
     if ausentes:
         raise ValueError(
@@ -336,9 +358,7 @@ def preparar_especies(dados: pd.DataFrame) -> list[dict[str, Any]]:
                 "origin_source": _limpar_valor(linha.get("originSource")),
                 "origin_source_url": _limpar_valor(linha.get("originSourceUrl")),
                 "origin_scope": _limpar_valor(linha.get("originScope")),
-                "taxonomic_issue_count": _inteiro(
-                    linha.get("taxonomicIssueCount")
-                )
+                "taxonomic_issue_count": _inteiro(linha.get("taxonomicIssueCount"))
                 or 0,
             }
         )
@@ -362,30 +382,23 @@ def preparar_ocorrencias(dados: pd.DataFrame) -> list[dict[str, Any]]:
                     linha["decimalLongitude"], "decimalLongitude"
                 ),
                 "event_date": _data_utc(linha.get("eventDate")),
-                "event_date_original": _limpar_valor(
-                    linha.get("eventDateOriginal")
-                ),
+                "event_date_original": _limpar_valor(linha.get("eventDateOriginal")),
                 "event_year": _inteiro(linha.get("year")),
                 "event_month": _inteiro(linha.get("month")),
                 "state_province": _limpar_valor(linha.get("stateProvince")),
                 "locality": _limpar_valor(linha.get("locality")),
                 "basis_of_record": _limpar_valor(linha.get("basisOfRecord")),
                 "dataset_key": _limpar_valor(linha.get("datasetKey")),
-                "occurrence_status": _limpar_valor(
-                    linha.get("occurrenceStatus")
-                ),
-                "establishment_means": _limpar_valor(
-                    linha.get("establishmentMeans")
-                ),
-                "degree_of_establishment": _texto(
-                    linha.get("degreeOfEstablishment")
-                ),
-                "taxonomic_issues": _limpar_valor(
-                    linha.get("taxonomicIssues")
-                ),
-                "occurrence_issues": _limpar_valor(
-                    linha.get("occurrenceIssues")
-                ),
+                "dataset_name": _limpar_valor(linha.get("datasetName")),
+                "publishing_org_key": _limpar_valor(linha.get("publishingOrgKey")),
+                "institution_code": _limpar_valor(linha.get("institutionCode")),
+                "license": _limpar_valor(linha.get("license")),
+                "references_url": _limpar_valor(linha.get("references")),
+                "occurrence_status": _limpar_valor(linha.get("occurrenceStatus")),
+                "establishment_means": _limpar_valor(linha.get("establishmentMeans")),
+                "degree_of_establishment": _texto(linha.get("degreeOfEstablishment")),
+                "taxonomic_issues": _limpar_valor(linha.get("taxonomicIssues")),
+                "occurrence_issues": _limpar_valor(linha.get("occurrenceIssues")),
                 "inside_basin": _booleano(linha["insideBasin"]),
             }
         )
@@ -504,18 +517,16 @@ def criar_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Valida e prepara os dados sem conectar ao banco.",
     )
+    parser.add_argument("--verbose", action="store_true")
     return parser
 
 
 def main() -> None:
     argumentos = criar_parser().parse_args()
+    configurar_logging(argumentos.verbose)
     load_dotenv(argumentos.env_file)
-    schema = validar_schema(
-        argumentos.schema or os.getenv("DB_SCHEMA", SCHEMA_PADRAO)
-    )
-    dados_especies = carregar_csv(
-        argumentos.especies, COLUNAS_ESPECIES, "especies"
-    )
+    schema = validar_schema(argumentos.schema or os.getenv("DB_SCHEMA", SCHEMA_PADRAO))
+    dados_especies = carregar_csv(argumentos.especies, COLUNAS_ESPECIES, "especies")
     dados_ocorrencias = carregar_csv(
         argumentos.ocorrencias, COLUNAS_OCORRENCIAS, "ocorrencias"
     )
@@ -524,9 +535,9 @@ def main() -> None:
     validar_referencias(especies, ocorrencias)
 
     if argumentos.dry_run:
-        print(f"Especies validadas: {len(especies)}")
-        print(f"Ocorrencias validadas: {len(ocorrencias)}")
-        print("Dry-run concluido; nenhuma conexao foi aberta.")
+        LOGGER.info("Espécies validadas: %s", len(especies))
+        LOGGER.info("Ocorrências validadas: %s", len(ocorrencias))
+        LOGGER.info("Dry-run concluído; nenhuma conexão foi aberta.")
         return
 
     database_url = os.getenv("DATABASE_URL")
@@ -550,11 +561,11 @@ def main() -> None:
     except psycopg.Error as erro:
         raise SystemExit(f"Falha na carga PostgreSQL: {erro}") from erro
 
-    print(f"Especies processadas: {resultado['species']}")
-    print(f"Ocorrencias processadas: {resultado['occurrences']}")
-    print(f"Especies no banco: {verificacao['species']}")
-    print(f"Ocorrencias no banco: {verificacao['occurrences']}")
-    print(f"Referencias orfas: {verificacao['orphans']}")
+    LOGGER.info("Espécies processadas: %s", resultado["species"])
+    LOGGER.info("Ocorrências processadas: %s", resultado["occurrences"])
+    LOGGER.info("Espécies no banco: %s", verificacao["species"])
+    LOGGER.info("Ocorrências no banco: %s", verificacao["occurrences"])
+    LOGGER.info("Referências órfãs: %s", verificacao["orphans"])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "Se você usar este software, cite-o usando estes metadados."
+title: "Biodiversidade de peixes na Bacia do Paraná"
+type: software
+version: 1.0.0
+date-released: 2026-07-16
+authors:
+  - family-names: "Fabian"
+    given-names: "Thierry"
+repository-code: "https://github.com/ThierryFabian00/biodiversidade-peixes"
+url: "https://github.com/ThierryFabian00/biodiversidade-peixes"
+keywords:
+  - biodiversity
+  - fish
+  - GBIF
+  - PostgreSQL
+  - Streamlit

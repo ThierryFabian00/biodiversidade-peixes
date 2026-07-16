@@ -11,21 +11,12 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
-ARQUIVO_ENTRADA = (
-    PASTA_PROJETO / "data" / "processed" / "ocorrencias_tilapia_limpo.csv"
-)
-ARQUIVO_LIMITE = (
-    PASTA_PROJETO / "data" / "geographic" / "bacia_parana_brasil.gpkg"
-)
+ARQUIVO_ENTRADA = PASTA_PROJETO / "data" / "processed" / "ocorrencias_tilapia_limpo.csv"
+ARQUIVO_LIMITE = PASTA_PROJETO / "data" / "geographic" / "bacia_parana_brasil.gpkg"
 ARQUIVO_SAIDA = (
-    PASTA_PROJETO
-    / "data"
-    / "processed"
-    / "ocorrencias_tilapia_bacia_parana.csv"
+    PASTA_PROJETO / "data" / "processed" / "ocorrencias_tilapia_bacia_parana.csv"
 )
-ARQUIVO_MAPA = (
-    PASTA_PROJETO / "data" / "processed" / "validacao_bacia_parana.png"
-)
+ARQUIVO_MAPA = PASTA_PROJETO / "data" / "processed" / "validacao_bacia_parana.png"
 
 
 def carregar_limite(caminho: Path) -> gpd.GeoDataFrame:
@@ -157,9 +148,7 @@ def salvar_resultados(
         "recordsInside": int(classificados["insideBasin"].sum()),
         "recordsOutside": int((~classificados["insideBasin"]).sum()),
     }
-    caminho_metadados = caminho_saida.with_name(
-        f"{caminho_saida.stem}_metadata.json"
-    )
+    caminho_metadados = caminho_saida.with_name(f"{caminho_saida.stem}_metadata.json")
     caminho_metadados.write_text(
         json.dumps(metadados, ensure_ascii=False, indent=2),
         encoding="utf-8",

@@ -137,15 +137,9 @@ def normalizar_dados(dados: pd.DataFrame) -> pd.DataFrame:
         resultado["decimal_longitude"], errors="coerce"
     )
     resultado["origin_status"] = resultado["origin_status"].fillna("UNKNOWN")
-    resultado["state_normalized"] = resultado["state_province"].map(
-        normalizar_estado
-    )
-    resultado["has_taxonomic_issue"] = (
-        resultado["taxonomic_issues"].fillna("").ne("")
-    )
-    resultado["has_occurrence_issue"] = (
-        resultado["occurrence_issues"].fillna("").ne("")
-    )
+    resultado["state_normalized"] = resultado["state_province"].map(normalizar_estado)
+    resultado["has_taxonomic_issue"] = resultado["taxonomic_issues"].fillna("").ne("")
+    resultado["has_occurrence_issue"] = resultado["occurrence_issues"].fillna("").ne("")
     resultado["missing_locality"] = resultado["locality"].isna()
     resultado["unexpected_state"] = ~resultado["state_normalized"].isin(
         ESTADOS_ESPERADOS | {"Nao informado"}
@@ -200,9 +194,7 @@ def calcular_indicadores(dados: pd.DataFrame) -> dict[str, Any]:
         "occurrences": len(dados),
         "species": int(dados["species_key"].nunique()),
         "introduced_species": int(
-            dados.loc[
-                dados["origin_status"].eq("INTRODUCED"), "species_key"
-            ].nunique()
+            dados.loc[dados["origin_status"].eq("INTRODUCED"), "species_key"].nunique()
         ),
         "states": int(
             dados.loc[
@@ -248,9 +240,7 @@ def serie_temporal(dados: pd.DataFrame) -> pd.DataFrame:
 
 
 def distribuicao_origem(dados: pd.DataFrame) -> pd.DataFrame:
-    especies = dados[["species_key", "origin_status"]].drop_duplicates(
-        "species_key"
-    )
+    especies = dados[["species_key", "origin_status"]].drop_duplicates("species_key")
     return (
         especies.groupby("origin_status", as_index=False)
         .size()
@@ -283,8 +273,4 @@ def frequencia_alertas(dados: pd.DataFrame, coluna: str) -> pd.DataFrame:
         raise ValueError("Coluna de alertas invalida.")
     alertas = dados[coluna].fillna("").str.split("|").explode()
     alertas = alertas[alertas.ne("")]
-    return (
-        alertas.value_counts()
-        .rename_axis("issue")
-        .reset_index(name="record_count")
-    )
+    return alertas.value_counts().rename_axis("issue").reset_index(name="record_count")
