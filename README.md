@@ -14,7 +14,9 @@ Analisar a distribuição geográfica, temporal, taxonômica e de origem de esp�
 - Matplotlib
 - PostgreSQL
 - Psycopg
+- Plotly
 - Requests
+- Streamlit
 - API do GBIF
 - Divisão Hidrográfica Nacional DHN250/IBGE
 
@@ -110,6 +112,18 @@ python -m src.query_db --consulta especie --termo "Oreochromis niloticus"
 
 O modelo, a configuração opcional com Docker, as restrições e as consultas estão descritos em [docs/POSTGRESQL.md](docs/POSTGRESQL.md).
 
+### Dashboard
+
+Com o PostgreSQL carregado ou os CSVs processados disponíveis, execute a Etapa 8:
+
+```powershell
+streamlit run app/app.py
+```
+
+O dashboard oferece filtros por espécie, origem, período, tipo de registro e unidade administrativa. Indicadores, gráficos, mapa, qualidade e tabela exportável respondem ao mesmo recorte. O PostgreSQL é a fonte principal e os CSVs são usados automaticamente como fallback.
+
+A arquitetura, os componentes e as orientações de publicação estão em [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
 Execute os testes com:
 
 ```powershell
@@ -125,4 +139,5 @@ python -m unittest discover -s tests -v
 - Na amostra atual de 5.000 registros, 3.792 ocorrências de 356 espécies estão dentro da Região Hidrográfica do Paraná; 555 registros sem identificação em nível de espécie foram separados para auditoria.
 - Análise exploratória espacial, temporal, taxonômica e de qualidade implementada com notebook reproduzível.
 - Modelagem PostgreSQL, carga idempotente, auditoria e consultas analíticas implementadas e validadas com 356 espécies e 3.792 ocorrências.
-- Próxima etapa: dashboard interativo em Streamlit.
+- Dashboard interativo em Streamlit implementado e validado em desktop e mobile.
+- Próxima etapa: qualidade, documentação e apresentação final.
