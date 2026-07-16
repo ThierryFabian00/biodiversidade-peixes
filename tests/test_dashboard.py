@@ -92,7 +92,9 @@ class TestDadosDashboard(unittest.TestCase):
             consulta_dashboard("biodiversity;drop")
 
     def test_normaliza_estado_e_flags_de_qualidade(self):
-        self.assertEqual(self.dados["state_normalized"].tolist()[:2], ["Parana", "Sao Paulo"])
+        self.assertEqual(
+            self.dados["state_normalized"].tolist()[:2], ["Parana", "Sao Paulo"]
+        )
         self.assertTrue(self.dados.loc[1, "missing_locality"])
         self.assertTrue(self.dados.loc[2, "unexpected_state"])
 
@@ -123,9 +125,7 @@ class TestDadosDashboard(unittest.TestCase):
 
     def test_resume_qualidade_e_alertas(self):
         qualidade = indicadores_qualidade(self.dados)
-        alertas = frequencia_alertas(
-            self.dados, "occurrence_issues"
-        ).set_index("issue")
+        alertas = frequencia_alertas(self.dados, "occurrence_issues").set_index("issue")
 
         self.assertEqual(qualidade["missing_locality"], 1)
         self.assertEqual(qualidade["taxonomic_issue"], 1)

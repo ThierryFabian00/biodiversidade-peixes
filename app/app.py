@@ -293,7 +293,7 @@ metricas = [
     ("Unidades", formatar_numero(indicadores["states"])),
     ("Período", indicadores["period"]),
 ]
-for coluna, (rotulo, valor) in zip(colunas_metricas, metricas):
+for coluna, (rotulo, valor) in zip(colunas_metricas, metricas, strict=True):
     coluna.metric(rotulo, valor)
 
 if filtrados.empty:
@@ -308,9 +308,7 @@ with aba_visao:
     ranking = ranking_especies(filtrados)
     origens_tabela = distribuicao_origem(filtrados)
     ranking["origin_label"] = ranking["origin_status"].map(ROTULOS_ORIGEM)
-    origens_tabela["origin_label"] = origens_tabela["origin_status"].map(
-        ROTULOS_ORIGEM
-    )
+    origens_tabela["origin_label"] = origens_tabela["origin_status"].map(ROTULOS_ORIGEM)
     coluna_ranking, coluna_origem = st.columns([1.65, 1])
     with coluna_ranking:
         ranking_plot = ranking.sort_values("occurrence_count")
@@ -429,15 +427,11 @@ with aba_qualidade:
         ("Alerta de ocorrência", qualidade["occurrence_issue"]),
         ("Unidade inesperada", qualidade["unexpected_state"]),
     ]
-    for coluna, (rotulo, valor) in zip(colunas_qualidade, itens_qualidade):
+    for coluna, (rotulo, valor) in zip(colunas_qualidade, itens_qualidade, strict=True):
         coluna.metric(rotulo, formatar_numero(valor), f"{100 * valor / total:.1f}%")
 
-    alertas_ocorrencia = frequencia_alertas(
-        filtrados, "occurrence_issues"
-    ).head(12)
-    alertas_taxonomicos = frequencia_alertas(
-        filtrados, "taxonomic_issues"
-    ).head(12)
+    alertas_ocorrencia = frequencia_alertas(filtrados, "occurrence_issues").head(12)
+    alertas_taxonomicos = frequencia_alertas(filtrados, "taxonomic_issues").head(12)
     coluna_ocorrencia, coluna_taxonomia = st.columns(2)
     with coluna_ocorrencia:
         figura = px.bar(
@@ -486,9 +480,13 @@ with aba_dados:
     if busca.strip():
         termo = busca.strip()
         mascara_busca = (
-            tabela["canonical_name"].fillna("").str.contains(termo, case=False, regex=False)
+            tabela["canonical_name"]
+            .fillna("")
+            .str.contains(termo, case=False, regex=False)
             | tabela["locality"].fillna("").str.contains(termo, case=False, regex=False)
-            | tabela["state_normalized"].fillna("").str.contains(termo, case=False, regex=False)
+            | tabela["state_normalized"]
+            .fillna("")
+            .str.contains(termo, case=False, regex=False)
         )
         tabela = tabela.loc[mascara_busca]
     tabela_exibicao = tabela[

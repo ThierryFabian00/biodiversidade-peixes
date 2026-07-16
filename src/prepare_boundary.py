@@ -14,9 +14,7 @@ PASTA_PROJETO = Path(__file__).resolve().parent.parent
 PASTA_FONTE = PASTA_PROJETO / "data" / "geographic" / "ibge_dhn250_2021"
 ARQUIVO_ZIP = PASTA_FONTE / "macro_RH.zip"
 ARQUIVO_FONTE = PASTA_FONTE / "macro_RH.shp"
-ARQUIVO_LIMITE = (
-    PASTA_PROJETO / "data" / "geographic" / "bacia_parana_brasil.gpkg"
-)
+ARQUIVO_LIMITE = PASTA_PROJETO / "data" / "geographic" / "bacia_parana_brasil.gpkg"
 
 URL_BASE = (
     "https://geoftp.ibge.gov.br/informacoes_ambientais/estudos_ambientais/"
@@ -70,9 +68,7 @@ def selecionar_regiao(
     if "cd_macroRH" not in regioes.columns:
         raise ValueError("A camada não possui a coluna 'cd_macroRH'.")
 
-    selecionada = regioes[
-        regioes["cd_macroRH"].astype("string") == codigo
-    ].copy()
+    selecionada = regioes[regioes["cd_macroRH"].astype("string") == codigo].copy()
 
     if len(selecionada) != 1:
         raise ValueError(
@@ -120,9 +116,7 @@ def preparar_limite(caminho_fonte: Path, caminho_saida: Path) -> gpd.GeoDataFram
             "conforme a Política de Dados Abertos do Governo Federal."
         ),
     }
-    caminho_metadados = caminho_saida.with_name(
-        f"{caminho_saida.stem}_metadata.json"
-    )
+    caminho_metadados = caminho_saida.with_name(f"{caminho_saida.stem}_metadata.json")
     caminho_metadados.write_text(
         json.dumps(metadados, ensure_ascii=False, indent=2),
         encoding="utf-8",

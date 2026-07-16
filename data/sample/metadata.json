@@ -1,0 +1,107 @@
+{
+  "createdAt": "2026-07-16T19:08:24.565401+00:00",
+  "sourceFile": "C:\\Users\\thier\\OneDrive\\Documentos\\Projetos\\biodiversidade_peixes_parana\\data\\processed\\ocorrencias_peixes_bacia_parana.csv",
+  "recordCount": 64,
+  "selection": "Deterministic sample with one occurrence per species, up to ten records per dataset, restricted to CC0 1.0 and CC BY 4.0.",
+  "citationWarning": "This sample does not replace a citable GBIF Occurrence Download with DOI. Retain dataset, institution, license and GBIF IDs.",
+  "datasets": [
+    {
+      "datasetKey": "0a00707e-7019-419a-bd39-8f61c3476404",
+      "datasetName": "",
+      "institutionCode": "R",
+      "licenseName": "CC0 1.0",
+      "recordCount": 1
+    },
+    {
+      "datasetKey": "0a4d7bde-0d92-46bb-88c7-2b0566383c86",
+      "datasetName": "",
+      "institutionCode": "USP-RP",
+      "licenseName": "CC BY 4.0",
+      "recordCount": 9
+    },
+    {
+      "datasetKey": "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+      "datasetName": "iNaturalist research-grade observations",
+      "institutionCode": "iNaturalist",
+      "licenseName": "CC BY 4.0",
+      "recordCount": 9
+    },
+    {
+      "datasetKey": "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+      "datasetName": "iNaturalist research-grade observations",
+      "institutionCode": "iNaturalist",
+      "licenseName": "CC0 1.0",
+      "recordCount": 1
+    },
+    {
+      "datasetKey": "5c3f06f2-561d-41c9-8fe2-1a4b5f3ef9e0",
+      "datasetName": "",
+      "institutionCode": "PUC-RS",
+      "licenseName": "CC BY 4.0",
+      "recordCount": 10
+    },
+    {
+      "datasetKey": "a75b2ed4-f805-42ba-a965-dca3541aee24",
+      "datasetName": "",
+      "institutionCode": "",
+      "licenseName": "CC0 1.0",
+      "recordCount": 1
+    },
+    {
+      "datasetKey": "a80ba081-6724-454a-a726-f1b94cb08a09",
+      "datasetName": "",
+      "institutionCode": "R",
+      "licenseName": "CC0 1.0",
+      "recordCount": 4
+    },
+    {
+      "datasetKey": "a91b60bd-16b8-45c1-81e5-fb3bb423590d",
+      "datasetName": "",
+      "institutionCode": "CI-UFLA",
+      "licenseName": "CC0 1.0",
+      "recordCount": 1
+    },
+    {
+      "datasetKey": "a91b60bd-16b8-45c1-81e5-fb3bb423590d",
+      "datasetName": "",
+      "institutionCode": "SL",
+      "licenseName": "CC0 1.0",
+      "recordCount": 1
+    },
+    {
+      "datasetKey": "c0e8647d-dd4b-4300-8ad1-8c362fb21d75",
+      "datasetName": "",
+      "institutionCode": "UNICAMP",
+      "licenseName": "CC BY 4.0",
+      "recordCount": 10
+    },
+    {
+      "datasetKey": "d3c0bc91-d09f-4cfe-9706-fb6a1ee6e5ef",
+      "datasetName": "",
+      "institutionCode": "MZUSP",
+      "licenseName": "CC0 1.0",
+      "recordCount": 1
+    },
+    {
+      "datasetKey": "d8cd16ba-bb74-4420-821e-083f2bac17c2",
+      "datasetName": "",
+      "institutionCode": "",
+      "licenseName": "CC BY 4.0",
+      "recordCount": 3
+    },
+    {
+      "datasetKey": "fd75a653-e7bd-4094-9adf-301386d9d35c",
+      "datasetName": "",
+      "institutionCode": "UEM",
+      "licenseName": "CC BY 4.0",
+      "recordCount": 10
+    },
+    {
+      "datasetKey": "fef834cd-98f0-4095-af8a-a8c66c1eff24",
+      "datasetName": "Coleção de Ictiologia do MZUSP",
+      "institutionCode": "MZUSP",
+      "licenseName": "CC BY 4.0",
+      "recordCount": 3
+    }
+  ]
+}

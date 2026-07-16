@@ -63,6 +63,11 @@ def tabela_ocorrencias(species_key="SP1"):
                 "locality": pd.NA,
                 "basisOfRecord": "PRESERVED_SPECIMEN",
                 "datasetKey": "dataset-1",
+                "datasetName": "Dataset de teste",
+                "publishingOrgKey": "org-1",
+                "institutionCode": "TEST",
+                "license": "http://creativecommons.org/licenses/by/4.0/legalcode",
+                "references": "https://example.org/occurrence/10",
                 "occurrenceStatus": "PRESENT",
                 "establishmentMeans": pd.NA,
                 "degreeOfEstablishment": pd.NA,
@@ -124,6 +129,8 @@ class TestModeloPostgreSQL(unittest.TestCase):
         self.assertIsNone(especie["iucn_category"])
         self.assertIsNone(ocorrencia["locality"])
         self.assertTrue(ocorrencia["inside_basin"])
+        self.assertEqual(ocorrencia["dataset_name"], "Dataset de teste")
+        self.assertIn("creativecommons.org/licenses/by/4.0", ocorrencia["license"])
         self.assertEqual(ocorrencia["event_date"].year, 2020)
         self.assertIsNotNone(ocorrencia["event_date"].tzinfo)
 

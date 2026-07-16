@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import math
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,9 +16,11 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
 from src.filter_basin import ARQUIVO_LIMITE, carregar_limite
+from src.logging_config import configurar_logging
 from src.transform_fish import ARQUIVO_ESPECIES, ARQUIVO_OCORRENCIAS
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
+LOGGER = logging.getLogger(__name__)
 PASTA_SAIDA = PASTA_PROJETO / "data" / "analysis"
 ARQUIVO_METADADOS_PIPELINE = (
     PASTA_PROJETO / "data" / "processed" / "pipeline_multiespecies_metadata.json"
@@ -126,8 +129,10 @@ def contar_por_coluna(
     dados: pd.DataFrame, coluna: str, nome_categoria: str
 ) -> pd.DataFrame:
     valores = dados[coluna].fillna("Nao informado")
-    tabela = valores.value_counts(dropna=False).rename_axis(nome_categoria).reset_index(
-        name="occurrenceCount"
+    tabela = (
+        valores.value_counts(dropna=False)
+        .rename_axis(nome_categoria)
+        .reset_index(name="occurrenceCount")
     )
     tabela["percentage"] = (100 * tabela["occurrenceCount"] / len(dados)).round(2)
     return tabela
@@ -155,7 +160,9 @@ def criar_resumos(
         por_ano = pd.DataFrame(columns=["year", "occurrenceCount", "percentage"])
     else:
         intervalo = range(int(anos_validos.min()), int(anos_validos.max()) + 1)
-        contagens = anos_validos.astype(int).value_counts().reindex(intervalo, fill_value=0)
+        contagens = (
+            anos_validos.astype(int).value_counts().reindex(intervalo, fill_value=0)
+        )
         por_ano = contagens.rename_axis("year").reset_index(name="occurrenceCount")
         por_ano["percentage"] = (
             100 * por_ano["occurrenceCount"] / len(ocorrencias)
@@ -170,9 +177,9 @@ def criar_resumos(
     )
     por_mes = meses.rename_axis("month").reset_index(name="occurrenceCount")
     por_mes["monthName"] = por_mes["month"].map(MESES)
-    por_mes["percentage"] = (
-        100 * por_mes["occurrenceCount"] / len(ocorrencias)
-    ).round(2)
+    por_mes["percentage"] = (100 * por_mes["occurrenceCount"] / len(ocorrencias)).round(
+        2
+    )
 
     estados = ocorrencias["stateProvince"].map(normalizar_estado)
     por_estado = contar_por_coluna(
@@ -189,12 +196,8 @@ def criar_resumos(
         "registros_por_tipo": contar_por_coluna(
             ocorrencias, "basisOfRecord", "basisOfRecord"
         ),
-        "alertas_ocorrencia": contar_issues(
-            ocorrencias, "occurrenceIssues", "issue"
-        ),
-        "alertas_taxonomicos": contar_issues(
-            ocorrencias, "taxonomicIssues", "issue"
-        ),
+        "alertas_ocorrencia": contar_issues(ocorrencias, "occurrenceIssues", "issue"),
+        "alertas_taxonomicos": contar_issues(ocorrencias, "taxonomicIssues", "issue"),
     }
 
 
@@ -224,34 +227,46 @@ def resumir_qualidade(ocorrencias: pd.DataFrame) -> pd.DataFrame:
     estados = ocorrencias["stateProvince"].map(normalizar_estado)
     metricas = {
         "missingScientificName": ocorrencias["canonicalName"].isna().sum(),
-        "missingCoordinates": ocorrencias[
-            ["decimalLatitude", "decimalLongitude"]
-        ].isna().any(axis=1).sum(),
-        "missingEventDate": pd.to_numeric(
-            ocorrencias["year"], errors="coerce"
-        ).isna().sum(),
+        "missingCoordinates": ocorrencias[["decimalLatitude", "decimalLongitude"]]
+        .isna()
+        .any(axis=1)
+        .sum(),
+        "missingEventDate": pd.to_numeric(ocorrencias["year"], errors="coerce")
+        .isna()
+        .sum(),
         "missingStateProvince": ocorrencias["stateProvince"].isna().sum(),
         "unexpectedStateProvince": (
             ~estados.isin(ESTADOS_ESPERADOS | {"Nao informado"})
         ).sum(),
         "missingLocality": ocorrencias.get(
             "locality", pd.Series(pd.NA, index=ocorrencias.index)
-        ).isna().sum(),
+        )
+        .isna()
+        .sum(),
         "taxonomicIssue": ocorrencias.get(
             "taxonomicIssues", pd.Series("", index=ocorrencias.index)
-        ).fillna("").ne("").sum(),
+        )
+        .fillna("")
+        .ne("")
+        .sum(),
         "occurrenceIssue": ocorrencias.get(
             "occurrenceIssues", pd.Series("", index=ocorrencias.index)
-        ).fillna("").ne("").sum(),
+        )
+        .fillna("")
+        .ne("")
+        .sum(),
         "duplicateGbifId": ocorrencias.duplicated("gbifID", keep=False).sum(),
         "potentialDuplicate": len(duplicados),
     }
     tabela = pd.DataFrame(
-        [{"metric": nome, "recordCount": int(valor)} for nome, valor in metricas.items()]
+        [
+            {"metric": nome, "recordCount": int(valor)}
+            for nome, valor in metricas.items()
+        ]
     )
-    tabela["percentage"] = (
-        100 * tabela["recordCount"] / total if total else 0
-    ).round(2)
+    tabela["percentage"] = (100 * tabela["recordCount"] / total if total else 0).round(
+        2
+    )
     return tabela
 
 
@@ -281,9 +296,7 @@ def criar_grade_espacial(
                 celulas.append({"gridId": id_grade, "geometry": geometria})
 
     grade = gpd.GeoDataFrame(celulas, crs="EPSG:4326")
-    pontos = ocorrencias.dropna(
-        subset=["decimalLongitude", "decimalLatitude"]
-    ).copy()
+    pontos = ocorrencias.dropna(subset=["decimalLongitude", "decimalLatitude"]).copy()
     pontos["gridId"] = pontos.apply(
         lambda linha: (
             f"{math.floor(float(linha['decimalLongitude']) / tamanho_grau) * tamanho_grau:.2f}_"
@@ -296,9 +309,9 @@ def criar_grade_espacial(
         speciesCount=("speciesKey", "nunique"),
     )
     grade = grade.merge(contagens, how="left", left_on="gridId", right_index=True)
-    grade[["occurrenceCount", "speciesCount"]] = grade[
-        ["occurrenceCount", "speciesCount"]
-    ].fillna(0).astype(int)
+    grade[["occurrenceCount", "speciesCount"]] = (
+        grade[["occurrenceCount", "speciesCount"]].fillna(0).astype(int)
+    )
     grade["sampled"] = grade["occurrenceCount"].gt(0)
     grade["areaKm2"] = (grade.to_crs("EPSG:5880").area / 1_000_000).round(2)
     return grade
@@ -357,12 +370,14 @@ def gerar_graficos(
     ax.set(title="Distribuicao por tipo de registro", xlabel="Ocorrencias", ylabel="")
     _salvar_figura(fig, pasta_saida / "registros_por_tipo.png")
 
-    estados = resumos["registros_por_estado"].head(10).sort_values(
-        "occurrenceCount"
-    )
+    estados = resumos["registros_por_estado"].head(10).sort_values("occurrenceCount")
     fig, ax = plt.subplots(figsize=(9, 6))
     ax.barh(estados["stateProvince"], estados["occurrenceCount"], color="#4f772d")
-    ax.set(title="Registros por unidade administrativa informada", xlabel="Ocorrencias", ylabel="")
+    ax.set(
+        title="Registros por unidade administrativa informada",
+        xlabel="Ocorrencias",
+        ylabel="",
+    )
     _salvar_figura(fig, pasta_saida / "registros_por_estado.png")
 
     limite_4326 = limite.to_crs("EPSG:4326")
@@ -380,11 +395,15 @@ def gerar_graficos(
     pontos[~pontos["canonicalName"].isin(nomes_top)].plot(
         ax=ax, color="#9ca3af", markersize=4, alpha=0.22, label="Outras especies"
     )
-    for nome, cor in zip(nomes_top, cores):
+    for nome, cor in zip(nomes_top, cores, strict=True):
         pontos[pontos["canonicalName"].eq(nome)].plot(
             ax=ax, color=cor, markersize=12, alpha=0.65, label=nome
         )
-    ax.set(title="Distribuicao das cinco especies mais registradas", xlabel="Longitude", ylabel="Latitude")
+    ax.set(
+        title="Distribuicao das cinco especies mais registradas",
+        xlabel="Longitude",
+        ylabel="Latitude",
+    )
     ax.legend(loc="lower left", fontsize=8, frameon=True)
     ax.set_aspect("equal")
     _salvar_figura(fig, pasta_saida / "mapa_ocorrencias.png")
@@ -402,7 +421,11 @@ def gerar_graficos(
         legend_kwds={"label": "log(1 + ocorrencias)"},
     )
     limite_4326.boundary.plot(ax=ax, color="#263238", linewidth=0.8)
-    ax.set(title="Esforco amostral e lacunas espaciais (grade de 1 grau)", xlabel="Longitude", ylabel="Latitude")
+    ax.set(
+        title="Esforco amostral e lacunas espaciais (grade de 1 grau)",
+        xlabel="Longitude",
+        ylabel="Latitude",
+    )
     ax.set_aspect("equal")
     _salvar_figura(fig, pasta_saida / "lacunas_espaciais.png")
 
@@ -422,7 +445,9 @@ def criar_relatorio(
     ano_max = int(pd.to_numeric(ocorrencias["year"], errors="coerce").max())
     celulas_vazias = int((~grade["sampled"]).sum())
     duplicados = int(
-        qualidade.loc[qualidade["metric"].eq("potentialDuplicate"), "recordCount"].iloc[0]
+        qualidade.loc[qualidade["metric"].eq("potentialDuplicate"), "recordCount"].iloc[
+            0
+        ]
     )
     estado_inesperado = int(
         qualidade.loc[
@@ -442,11 +467,11 @@ def criar_relatorio(
 ## Indicadores gerais
 
 - Ocorrencias analisadas: {len(ocorrencias):,}
-- Especies distintas: {especies['speciesKey'].nunique():,}
+- Especies distintas: {especies["speciesKey"].nunique():,}
 - Intervalo temporal observado: {ano_min} a {ano_max}
-- Especie mais registrada: *{top['canonicalName']}* ({int(top['occurrenceCount'])} registros)
-- Tipo de registro predominante: {tipo['basisOfRecord']} ({tipo['percentage']:.2f}%)
-- Unidade administrativa mais informada: {estado['stateProvince']} ({estado['percentage']:.2f}%)
+- Especie mais registrada: *{top["canonicalName"]}* ({int(top["occurrenceCount"])} registros)
+- Tipo de registro predominante: {tipo["basisOfRecord"]} ({tipo["percentage"]:.2f}%)
+- Unidade administrativa mais informada: {estado["stateProvince"]} ({estado["percentage"]:.2f}%)
 
 ## Qualidade e lacunas
 
@@ -454,7 +479,7 @@ def criar_relatorio(
 - Rotulos administrativos inesperados: {estado_inesperado}. O recorte usa as coordenadas; por isso divergencias no texto de estado/provincia sao mantidas como alerta de qualidade.
 - Celulas da grade sem ocorrencias: {celulas_vazias} de {len(grade)}. Celulas vazias indicam ausencia de registros publicados na amostra, nao ausencia de peixes.
 - Todos os pontos desta tabela possuem coordenadas e passaram pelo recorte espacial exato da Regiao Hidrografica do Parana.
-- O alerta GBIF mais frequente e {principal_alerta['issue']} ({int(principal_alerta['recordCount'])} registros). Alertas de interpretacao nao significam necessariamente que o registro seja inutilizavel.
+- O alerta GBIF mais frequente e {principal_alerta["issue"]} ({int(principal_alerta["recordCount"])} registros). Alertas de interpretacao nao significam necessariamente que o registro seja inutilizavel.
 
 ## Interpretacao inicial
 
@@ -501,9 +526,7 @@ def executar_analise(
     relatorio = criar_relatorio(
         ocorrencias, especies, resumos, qualidade, grade, metadados_pipeline
     )
-    (pasta_saida / "relatorio_exploratorio.md").write_text(
-        relatorio, encoding="utf-8"
-    )
+    (pasta_saida / "relatorio_exploratorio.md").write_text(relatorio, encoding="utf-8")
 
     metadados = {
         "createdAt": datetime.now(timezone.utc).isoformat(),
@@ -532,20 +555,22 @@ def criar_parser() -> argparse.ArgumentParser:
     parser.add_argument("--especies", type=Path, default=ARQUIVO_ESPECIES)
     parser.add_argument("--limite", type=Path, default=ARQUIVO_LIMITE)
     parser.add_argument("--saida", type=Path, default=PASTA_SAIDA)
+    parser.add_argument("--verbose", action="store_true")
     return parser
 
 
 def main() -> None:
     argumentos = criar_parser().parse_args()
+    configurar_logging(argumentos.verbose)
     metadados = executar_analise(
         argumentos.ocorrencias,
         argumentos.especies,
         argumentos.limite,
         argumentos.saida,
     )
-    print(f"Ocorrencias analisadas: {metadados['occurrenceCount']}")
-    print(f"Especies distintas: {metadados['speciesCount']}")
-    print(f"Resultados salvos em: {argumentos.saida}")
+    LOGGER.info("Ocorrências analisadas: %s", metadados["occurrenceCount"])
+    LOGGER.info("Espécies distintas: %s", metadados["speciesCount"])
+    LOGGER.info("Resultados salvos em: %s", argumentos.saida)
 
 
 if __name__ == "__main__":

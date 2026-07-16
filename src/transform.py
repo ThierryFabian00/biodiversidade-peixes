@@ -1,33 +1,20 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 import pandas as pd
-
 
 # Localiza a pasta principal do projeto.
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
 
-ARQUIVO_ENTRADA = (
-    PASTA_PROJETO
-    / "data"
-    / "raw"
-    / "ocorrencias_tilapia.csv"
-)
+ARQUIVO_ENTRADA = PASTA_PROJETO / "data" / "raw" / "ocorrencias_tilapia.csv"
 
-ARQUIVO_SAIDA = (
-    PASTA_PROJETO
-    / "data"
-    / "processed"
-    / "ocorrencias_tilapia_limpo.csv"
-)
+ARQUIVO_SAIDA = PASTA_PROJETO / "data" / "processed" / "ocorrencias_tilapia_limpo.csv"
 
 
 def carregar_dados(caminho: Path) -> pd.DataFrame:
     """Carrega os registros brutos armazenados em CSV."""
 
     if not caminho.exists():
-        raise FileNotFoundError(
-            f"Arquivo de entrada não encontrado: {caminho}"
-        )
+        raise FileNotFoundError(f"Arquivo de entrada não encontrado: {caminho}")
 
     return pd.read_csv(caminho)
 
@@ -79,9 +66,7 @@ def limpar_dados(dados: pd.DataFrame) -> pd.DataFrame:
     )
 
     # Remove registros sem coordenadas.
-    dados_limpos = dados_limpos.dropna(
-        subset=["decimalLatitude", "decimalLongitude"]
-    )
+    dados_limpos = dados_limpos.dropna(subset=["decimalLatitude", "decimalLongitude"])
 
     # Mantém somente coordenadas possíveis.
     dados_limpos = dados_limpos[
@@ -121,17 +106,9 @@ def limpar_dados(dados: pd.DataFrame) -> pd.DataFrame:
     )
 
     # Cria colunas para análises temporais.
-    dados_limpos["year"] = (
-        dados_limpos["eventDate"]
-        .dt.year
-        .astype("Int64")
-    )
+    dados_limpos["year"] = dados_limpos["eventDate"].dt.year.astype("Int64")
 
-    dados_limpos["month"] = (
-        dados_limpos["eventDate"]
-        .dt.month
-        .astype("Int64")
-    )
+    dados_limpos["month"] = dados_limpos["eventDate"].dt.month.astype("Int64")
 
     # Remove espaços extras nos campos de texto.
     colunas_texto = [
@@ -143,11 +120,7 @@ def limpar_dados(dados: pd.DataFrame) -> pd.DataFrame:
 
     for coluna in colunas_texto:
         if coluna in dados_limpos.columns:
-            dados_limpos[coluna] = (
-                dados_limpos[coluna]
-                .astype("string")
-                .str.strip()
-            )
+            dados_limpos[coluna] = dados_limpos[coluna].astype("string").str.strip()
 
     # Organiza o índice depois das remoções.
     dados_limpos = dados_limpos.reset_index(drop=True)
