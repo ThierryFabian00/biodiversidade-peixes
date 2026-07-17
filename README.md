@@ -114,6 +114,7 @@ fonte e ausencia eventual de metadados de publicacao na resposta da API.
 ## Documentacao
 
 - [Arquitetura](docs/ARQUITETURA.md)
+- [Escopo do MVP da versão 2](docs/ESCOPO_MVP_V2.md)
 - [Recorte geografico](docs/RECORTE_GEOGRAFICO.md)
 - [Taxonomia e especies introduzidas](docs/TAXONOMIA_E_STATUS.md)
 - [Analises](docs/ANALISES.md)
