@@ -7,7 +7,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from src.analysis import ESTADOS_ESPERADOS, normalizar_estado
-from src.load import validar_schema
+from src.database import validar_schema
 from src.transform_fish import ARQUIVO_ESPECIES, ARQUIVO_OCORRENCIAS
 
 

@@ -10,29 +10,24 @@ import geopandas as gpd
 import requests
 from shapely import orient_polygons
 
-from src.extract import (
+from src.config import (
+    CHECKLIST_GBIF,
     GBIF_API,
+    GRUPOS_PEIXES,
+    LIMITE_AMOSTRA_PEIXES,
     LIMITE_BUSCA_GBIF,
     TAMANHO_MAXIMO_PAGINA,
-    criar_sessao,
 )
 from src.filter_basin import ARQUIVO_LIMITE, carregar_limite
+from src.gbif_client import criar_sessao, requisitar_json
 from src.logging_config import configurar_logging
 
 LOGGER = logging.getLogger(__name__)
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
 ARQUIVO_SAIDA = PASTA_PROJETO / "data" / "raw" / "ocorrencias_peixes_amostra.jsonl"
-CHECKLIST_COL = "7ddf754f-d193-4cc9-b351-99906754a03b"
-MAX_REGISTROS_PADRAO = 5_000
-
-GRUPOS_PEIXES = {
-    "Actinopterygii": "8VR36",
-    "Elasmobranchii": "LB",
-    "Dipneusti": "8V4VF",
-    "Myxini": "6225G",
-    "Petromyzonti": "8VJWX",
-}
+CHECKLIST_COL = CHECKLIST_GBIF
+MAX_REGISTROS_PADRAO = LIMITE_AMOSTRA_PEIXES
 
 
 @dataclass(frozen=True)
@@ -57,14 +52,13 @@ def requisitar_pagina(
     sessao: requests.Session,
     parametros: list[tuple[str, Any]],
 ) -> dict[str, Any]:
-    resposta = sessao.get(
+    dados = requisitar_json(
+        sessao,
         f"{GBIF_API}/occurrence/search",
-        params=parametros,
+        parametros,
         timeout=60,
     )
-    resposta.raise_for_status()
-    dados = resposta.json()
-    if not isinstance(dados, dict) or not isinstance(dados.get("results"), list):
+    if not isinstance(dados.get("results"), list):
         raise ValueError("A API do GBIF retornou uma página inválida.")
     return dados
 
@@ -127,7 +121,7 @@ def salvar_resultado(
         "extractedAt": datetime.now(timezone.utc).isoformat(),
         "source": f"{GBIF_API}/occurrence/search",
         "checklistKey": CHECKLIST_COL,
-        "taxonGroups": GRUPOS_PEIXES,
+        "taxonGroups": dict(GRUPOS_PEIXES),
         "spatialPrefilter": "convex hull of the basin boundary",
         "exactBoundaryFile": str(caminho_limite),
         "occurrenceStatus": "PRESENT",

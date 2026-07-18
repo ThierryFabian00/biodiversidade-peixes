@@ -1,8 +1,6 @@
 import argparse
 import hashlib
 import logging
-import os
-import re
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -10,16 +8,19 @@ from typing import Any
 
 import pandas as pd
 import psycopg
-from dotenv import load_dotenv
 
+from src.config import (
+    ARQUIVO_ENV,
+    TAMANHO_LOTE_PADRAO,
+)
+from src.config import (
+    SCHEMA_PADRAO as SCHEMA_PADRAO,
+)
+from src.database import ConfiguracaoBanco, validar_schema
 from src.logging_config import configurar_logging
 from src.transform_fish import ARQUIVO_ESPECIES, ARQUIVO_OCORRENCIAS
 
-PASTA_PROJETO = Path(__file__).resolve().parent.parent
 LOGGER = logging.getLogger(__name__)
-ARQUIVO_ENV = PASTA_PROJETO / ".env"
-SCHEMA_PADRAO = "biodiversity"
-TAMANHO_LOTE_PADRAO = 500
 
 COLUNAS_ESPECIES = {
     "speciesKey",
@@ -119,14 +120,6 @@ ON CONFLICT (gbif_id) DO UPDATE SET
     inside_basin = EXCLUDED.inside_basin,
     updated_at = CURRENT_TIMESTAMP
 """
-
-
-def validar_schema(schema: str) -> str:
-    if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
-        raise ValueError(
-            "Schema invalido. Use apenas letras minusculas, numeros e underscore."
-        )
-    return schema
 
 
 def criar_comandos_schema(schema: str) -> list[str]:
@@ -426,7 +419,9 @@ def calcular_checksum(caminhos: Iterable[Path]) -> str:
     return resumo.hexdigest()
 
 
-def _lotes(registros: Sequence[dict[str, Any]], tamanho: int):
+def _lotes(
+    registros: Sequence[dict[str, Any]], tamanho: int
+) -> Iterable[Sequence[dict[str, Any]]]:
     if tamanho <= 0:
         raise ValueError("O tamanho do lote deve ser positivo.")
     for inicio in range(0, len(registros), tamanho):
@@ -524,8 +519,10 @@ def criar_parser() -> argparse.ArgumentParser:
 def main() -> None:
     argumentos = criar_parser().parse_args()
     configurar_logging(argumentos.verbose)
-    load_dotenv(argumentos.env_file)
-    schema = validar_schema(argumentos.schema or os.getenv("DB_SCHEMA", SCHEMA_PADRAO))
+    configuracao_banco = ConfiguracaoBanco.do_ambiente(
+        argumentos.env_file, argumentos.schema
+    )
+    schema = configuracao_banco.schema
     dados_especies = carregar_csv(argumentos.especies, COLUNAS_ESPECIES, "especies")
     dados_ocorrencias = carregar_csv(
         argumentos.ocorrencias, COLUNAS_OCORRENCIAS, "ocorrencias"
@@ -540,11 +537,10 @@ def main() -> None:
         LOGGER.info("Dry-run concluído; nenhuma conexão foi aberta.")
         return
 
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise SystemExit(
-            "DATABASE_URL nao definida. Crie .env a partir de .env.example."
-        )
+    try:
+        database_url = configuracao_banco.exigir_url()
+    except ValueError as erro:
+        raise SystemExit(str(erro)) from erro
 
     try:
         with psycopg.connect(database_url) as conexao:

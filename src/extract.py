@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -9,16 +10,20 @@ from typing import Any
 
 import pandas as pd
 import requests
-import truststore
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
-truststore.inject_into_ssl()
+from src.config import (
+    ESPECIE_PADRAO,
+    GBIF_API,
+    LIMITE_BUSCA_GBIF,
+    PAIS_PADRAO,
+    TAMANHO_MAXIMO_PAGINA,
+    ConfiguracaoAplicacao,
+)
+from src.gbif_client import criar_sessao, requisitar_json
+from src.logging_config import configurar_logging
+from src.services.occurrence_service import ParametrosConsultaOcorrencia
 
-GBIF_API = "https://api.gbif.org/v1"
-TAMANHO_MAXIMO_PAGINA = 300
-LIMITE_BUSCA_GBIF = 100_000
-ESPECIE_PADRAO = "Oreochromis niloticus"
+LOGGER = logging.getLogger(__name__)
 COLUNAS = [
     "key",
     "scientificName",
@@ -38,50 +43,15 @@ class ResultadoExtracao:
     total_disponivel: int | None
 
 
-def criar_sessao() -> requests.Session:
-    retentativas = Retry(
-        total=3,
-        connect=3,
-        read=3,
-        status=3,
-        backoff_factor=0.5,
-        status_forcelist=(429, 500, 502, 503, 504),
-        allowed_methods=frozenset({"GET"}),
-        raise_on_status=False,
-    )
-    adaptador = HTTPAdapter(max_retries=retentativas)
-    sessao = requests.Session()
-    sessao.mount("https://", adaptador)
-    return sessao
-
-
-def requisitar_json(
-    sessao: requests.Session,
-    url: str,
-    parametros: dict[str, Any],
-) -> dict[str, Any]:
-    resposta = sessao.get(url, params=parametros, timeout=30)
-    resposta.raise_for_status()
-
-    try:
-        dados = resposta.json()
-    except requests.exceptions.JSONDecodeError as erro:
-        raise ValueError("A API do GBIF retornou uma resposta JSON inválida.") from erro
-
-    if not isinstance(dados, dict):
-        raise ValueError("A API do GBIF retornou um formato inesperado.")
-
-    return dados
-
-
 def buscar_especie(
     nome_cientifico: str,
     sessao: requests.Session | None = None,
+    gbif_api: str = GBIF_API,
 ) -> dict[str, Any]:
     sessao = sessao or criar_sessao()
     dados = requisitar_json(
         sessao,
-        f"{GBIF_API}/species/match",
+        f"{gbif_api}/species/match",
         {"name": nome_cientifico},
     )
 
@@ -93,25 +63,18 @@ def buscar_especie(
 
 def buscar_ocorrencias(
     taxon_key: int,
-    pais: str = "BR",
+    pais: str = PAIS_PADRAO,
     tamanho_pagina: int = TAMANHO_MAXIMO_PAGINA,
     max_registros: int | None = None,
     sessao: requests.Session | None = None,
+    gbif_api: str = GBIF_API,
 ) -> ResultadoExtracao:
-    if not 1 <= tamanho_pagina <= TAMANHO_MAXIMO_PAGINA:
-        raise ValueError(
-            f"O tamanho da página deve estar entre 1 e {TAMANHO_MAXIMO_PAGINA}."
-        )
-    if max_registros is not None and max_registros < 1:
-        raise ValueError("O limite total de registros deve ser maior que zero.")
-    if max_registros is not None and max_registros > LIMITE_BUSCA_GBIF:
-        raise ValueError(
-            "A API de busca do GBIF permite no máximo 100000 registros. "
-            "Para volumes maiores, use o serviço de download do GBIF."
-        )
+    consulta = ParametrosConsultaOcorrencia(
+        taxon_key, pais, tamanho_pagina, max_registros
+    )
 
     sessao = sessao or criar_sessao()
-    url = f"{GBIF_API}/occurrence/search"
+    url = f"{gbif_api}/occurrence/search"
     registros: list[dict[str, Any]] = []
     offset = 0
     paginas_consultadas = 0
@@ -122,13 +85,7 @@ def buscar_ocorrencias(
         if max_registros is not None:
             limite = min(limite, max_registros - len(registros))
 
-        parametros = {
-            "taxon_key": taxon_key,
-            "country": pais,
-            "has_coordinate": "true",
-            "limit": limite,
-            "offset": offset,
-        }
+        parametros = consulta.parametros_api(offset, limite)
         dados = requisitar_json(sessao, url, parametros)
         pagina = dados.get("results")
 
@@ -175,6 +132,7 @@ def salvar_resultados(
     nome_consultado: str,
     pais: str,
     caminho_saida: Path,
+    gbif_api: str = GBIF_API,
 ) -> None:
     caminho_saida.parent.mkdir(parents=True, exist_ok=True)
     tabela = pd.DataFrame(resultado.registros).reindex(columns=COLUNAS)
@@ -182,7 +140,7 @@ def salvar_resultados(
 
     metadados = {
         "extractedAt": datetime.now(timezone.utc).isoformat(),
-        "source": f"{GBIF_API}/occurrence/search",
+        "source": f"{gbif_api}/occurrence/search",
         "query": {
             "scientificName": nome_consultado,
             "taxonKey": especie["usageKey"],
@@ -202,19 +160,22 @@ def salvar_resultados(
     )
 
 
-def criar_parser() -> argparse.ArgumentParser:
+def criar_parser(
+    configuracao: ConfiguracaoAplicacao | None = None,
+) -> argparse.ArgumentParser:
+    configuracao = configuracao or ConfiguracaoAplicacao.do_ambiente()
     parser = argparse.ArgumentParser(
         description="Extrai ocorrências paginadas da API do GBIF."
     )
     parser.add_argument(
         "--especie",
-        default=ESPECIE_PADRAO,
+        default=configuracao.especie_padrao,
         help="Nome científico consultado no GBIF.",
     )
     parser.add_argument(
         "--pais",
-        default="BR",
-        help="Código de duas letras do país (padrão: BR).",
+        default=configuracao.pais_padrao,
+        help=f"Código ISO de duas letras (padrão: {configuracao.pais_padrao}).",
     )
     parser.add_argument(
         "--max-registros",
@@ -225,7 +186,7 @@ def criar_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tamanho-pagina",
         type=int,
-        default=TAMANHO_MAXIMO_PAGINA,
+        default=configuracao.limite_padrao,
         help=f"Registros por requisição, de 1 a {TAMANHO_MAXIMO_PAGINA}.",
     )
     parser.add_argument(
@@ -238,9 +199,11 @@ def criar_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    argumentos = criar_parser().parse_args()
+    configuracao = ConfiguracaoAplicacao.do_ambiente()
+    argumentos = criar_parser(configuracao).parse_args()
+    configurar_logging()
     sessao = criar_sessao()
-    especie = buscar_especie(argumentos.especie, sessao)
+    especie = buscar_especie(argumentos.especie, sessao, configuracao.gbif_api)
     if argumentos.saida:
         caminho_saida = argumentos.saida
     elif argumentos.especie.casefold() == ESPECIE_PADRAO.casefold():
@@ -248,8 +211,8 @@ def main() -> None:
     else:
         caminho_saida = Path("data/raw") / criar_nome_arquivo(argumentos.especie)
 
-    print("Espécie encontrada:", especie.get("scientificName"))
-    print("Taxon key:", especie["usageKey"])
+    LOGGER.info("Espécie encontrada: %s", especie.get("scientificName"))
+    LOGGER.info("Taxon key: %s", especie["usageKey"])
 
     resultado = buscar_ocorrencias(
         taxon_key=especie["usageKey"],
@@ -257,6 +220,7 @@ def main() -> None:
         tamanho_pagina=argumentos.tamanho_pagina,
         max_registros=argumentos.max_registros,
         sessao=sessao,
+        gbif_api=configuracao.gbif_api,
     )
     salvar_resultados(
         resultado,
@@ -264,11 +228,12 @@ def main() -> None:
         argumentos.especie,
         argumentos.pais.upper(),
         caminho_saida,
+        gbif_api=configuracao.gbif_api,
     )
 
-    print(f"\nForam coletados {len(resultado.registros)} registros.")
-    print(f"Páginas consultadas: {resultado.paginas_consultadas}")
-    print(f"CSV salvo em: {caminho_saida}")
+    LOGGER.info("Foram coletados %s registros.", len(resultado.registros))
+    LOGGER.info("Páginas consultadas: %s", resultado.paginas_consultadas)
+    LOGGER.info("CSV salvo em: %s", caminho_saida)
 
 
 if __name__ == "__main__":

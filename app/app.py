@@ -1,19 +1,19 @@
-import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import geopandas as gpd
 import pandas as pd
 import plotly.express as px
 import pydeck as pdk
 import streamlit as st
-from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.dashboard_data import (  # noqa: E402
+    ResultadoFonte,
     calcular_indicadores,
     carregar_dados_dashboard,
     distribuicao_origem,
@@ -24,10 +24,10 @@ from src.dashboard_data import (  # noqa: E402
     ranking_especies,
     serie_temporal,
 )
+from src.database import ConfiguracaoBanco  # noqa: E402
 from src.filter_basin import ARQUIVO_LIMITE  # noqa: E402
-from src.load import SCHEMA_PADRAO, validar_schema  # noqa: E402
 
-load_dotenv(PROJECT_ROOT / ".env")
+CONFIGURACAO_BANCO = ConfiguracaoBanco.do_ambiente()
 
 st.set_page_config(
     page_title="Peixes da Bacia do Paraná",
@@ -112,12 +112,12 @@ def aplicar_estilo() -> None:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def obter_dados(schema: str):
-    return carregar_dados_dashboard(os.getenv("DATABASE_URL"), schema)
+def obter_dados(schema: str) -> ResultadoFonte:
+    return carregar_dados_dashboard(CONFIGURACAO_BANCO.database_url, schema)
 
 
 @st.cache_data(show_spinner=False)
-def obter_limite_geojson():
+def obter_limite_geojson() -> dict[str, Any] | None:
     if not ARQUIVO_LIMITE.exists():
         return None
     limite = gpd.read_file(ARQUIVO_LIMITE, engine="fiona").to_crs("EPSG:4326")
@@ -133,7 +133,7 @@ def rotulo_estado(valor: str) -> str:
     return ROTULOS_ESTADO.get(valor, valor)
 
 
-def layout_grafico(figura, altura: int = 390):
+def layout_grafico(figura: Any, altura: int = 390) -> Any:
     figura.update_layout(
         height=altura,
         margin=dict(l=16, r=16, t=52, b=20),
@@ -148,7 +148,7 @@ def layout_grafico(figura, altura: int = 390):
     return figura
 
 
-def criar_mapa(dados: pd.DataFrame):
+def criar_mapa(dados: pd.DataFrame) -> pdk.Deck | None:
     pontos = dados.dropna(subset=["decimal_latitude", "decimal_longitude"]).copy()
     if pontos.empty:
         return None
@@ -209,7 +209,7 @@ def criar_mapa(dados: pd.DataFrame):
 
 aplicar_estilo()
 
-schema = validar_schema(os.getenv("DB_SCHEMA", SCHEMA_PADRAO))
+schema = CONFIGURACAO_BANCO.schema
 try:
     resultado = obter_dados(schema)
 except (FileNotFoundError, ValueError) as erro:
