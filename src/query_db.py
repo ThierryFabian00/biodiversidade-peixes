@@ -1,14 +1,13 @@
 import argparse
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import psycopg
-from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
-from src.load import ARQUIVO_ENV, SCHEMA_PADRAO, validar_schema
+from src.config import ARQUIVO_ENV
+from src.database import ConfiguracaoBanco, validar_schema
 
 CONSULTAS = ("resumo", "ranking", "anos", "meses", "origens", "especie")
 
@@ -100,13 +99,14 @@ def criar_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     argumentos = criar_parser().parse_args()
-    load_dotenv(argumentos.env_file)
-    schema = validar_schema(argumentos.schema or os.getenv("DB_SCHEMA", SCHEMA_PADRAO))
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise SystemExit(
-            "DATABASE_URL nao definida. Crie .env a partir de .env.example."
-        )
+    configuracao_banco = ConfiguracaoBanco.do_ambiente(
+        argumentos.env_file, argumentos.schema
+    )
+    schema = configuracao_banco.schema
+    try:
+        database_url = configuracao_banco.exigir_url()
+    except ValueError as erro:
+        raise SystemExit(str(erro)) from erro
     try:
         with psycopg.connect(database_url, row_factory=dict_row) as conexao:
             with conexao.cursor() as cursor:
