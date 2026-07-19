@@ -2,10 +2,9 @@
 
 ## Objetivo
 
-A Etapa 2 centraliza parâmetros que antes estavam espalhados pelos comandos,
-sem modificar o fluxo funcional da versão 1. País, espécie, limite e grupo
-taxonômico possuem valores padrão, mas podem ser substituídos por variáveis de
-ambiente ou argumentos de linha de comando.
+A Etapa 2 centraliza parâmetros que antes estavam espalhados pelos comandos.
+País, espécie, limites e grupo taxonômico possuem valores padrão, mas podem ser
+substituídos por variáveis de ambiente ou argumentos de linha de comando.
 
 ## Módulos
 
@@ -16,8 +15,8 @@ ambiente ou argumentos de linha de comando.
 | `src.gbif_client` | Sessão HTTP, retentativas, timeout e validação da resposta GBIF |
 | `src.services.country_service` | Normalização do código ISO do país |
 | `src.services.occurrence_service` | Validação e montagem dos parâmetros de ocorrências |
-| `src.extract` | Orquestra a extração legada de uma espécie |
-| `src.extract_fish` | Orquestra a amostra multiespécies da versão 1 |
+| `src.extract` | Orquestra a extração de uma espécie |
+| `src.extract_fish` | Orquestra a extração por grupo taxonômico |
 
 Transformação, análise, carga e apresentação continuam em módulos separados.
 Os imports públicos usados pela versão 1 foram preservados quando necessários
@@ -28,16 +27,29 @@ para evitar regressões.
 | Variável | Padrão | Uso |
 | --- | --- | --- |
 | `PAIS_PADRAO` | `BR` | País usado quando nenhum código é informado |
-| `ESPECIE_PADRAO` | `Oreochromis niloticus` | Consulta legada de uma espécie |
-| `LIMITE_PADRAO` | `300` | Limite configurável de consulta do MVP |
+| `ESPECIE_PADRAO` | `Oreochromis niloticus` | Consulta inicial de uma espécie |
+| `LIMITE_CONSULTA_PADRAO` | `10000` | Teto total de registros por consulta do MVP |
+| `TAMANHO_PAGINA_PADRAO` | `300` | Registros solicitados por página da API |
 | `GRUPO_TAXONOMICO` | `Actinopterygii` | Grupo inicial de peixes |
 | `GBIF_API` | `https://api.gbif.org/v1` | Endpoint base do GBIF |
 | `DATABASE_URL` | sem valor seguro | Conexão PostgreSQL da aplicação |
 | `DB_SCHEMA` | `biodiversity` | Schema validado do banco |
 
-O tamanho máximo de uma página GBIF permanece em 300 e o limite técnico da API
-de busca permanece em 100.000. A amostra multiespécies da versão 1 continua
-com 5.000 registros para preservar o comportamento existente.
+O tamanho máximo de uma página GBIF permanece em 300, o teto interativo padrão
+é de 10.000 registros e o limite técnico da API de busca permanece em 100.000.
+`LIMITE_PADRAO` continua aceito como variável de ambiente de compatibilidade,
+mas novos ambientes devem usar `LIMITE_CONSULTA_PADRAO`.
+
+A linha de comando multiespécies usa `GRUPO_TAXONOMICO` e registra no
+metadado exatamente o grupo consultado. Chamadas programáticas que não
+informam grupos preservam o conjunto legado de grupos de peixes.
+
+## Logging
+
+Os comandos de extração, preparação geográfica, filtro, transformação, análise,
+carga e exportação usam `src.logging_config`. Comandos que aceitam
+`--verbose` habilitam mensagens de depuração. `query_db` mantém `print`
+somente para emitir o JSON solicitado pelo usuário.
 
 ## Credenciais
 
@@ -56,7 +68,6 @@ de desenvolvimento e notebook ficam em `requirements-dev.txt`.
 
 ## Compatibilidade
 
-A extração de uma espécie, a coleta multiespécies da Bacia do Paraná, a carga
-PostgreSQL e o dashboard mantêm seus comandos e padrões anteriores. A
-refatoração muda a localização das responsabilidades, não o resultado esperado
-da versão 1.
+As funções públicas usadas pela versão 1 mantêm parâmetros compatíveis. Na
+linha de comando da V2, país, espécie, grupo, limite total e tamanho da página
+são resolvidos pela configuração central.

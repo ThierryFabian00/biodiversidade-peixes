@@ -1,6 +1,11 @@
+import logging
 from pathlib import Path
 
 import pandas as pd
+
+from src.logging_config import configurar_logging
+
+LOGGER = logging.getLogger(__name__)
 
 # Localiza a pasta principal do projeto.
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
@@ -20,23 +25,14 @@ def carregar_dados(caminho: Path) -> pd.DataFrame:
 
 
 def exibir_resumo(dados: pd.DataFrame) -> None:
-    """Exibe informações gerais sobre o conjunto de dados."""
+    """Registra informações gerais sobre o conjunto de dados."""
 
-    print("\n--- RESUMO DOS DADOS BRUTOS ---")
-    print(f"Quantidade de linhas: {len(dados)}")
-    print(f"Quantidade de colunas: {len(dados.columns)}")
-
-    print("\nColunas:")
-    print(dados.columns.tolist())
-
-    print("\nTipos das colunas:")
-    print(dados.dtypes)
-
-    print("\nValores ausentes:")
-    print(dados.isna().sum())
-
-    print("\nLinhas duplicadas:")
-    print(dados.duplicated().sum())
+    LOGGER.info("Quantidade de linhas: %s", len(dados))
+    LOGGER.info("Quantidade de colunas: %s", len(dados.columns))
+    LOGGER.info("Colunas: %s", dados.columns.tolist())
+    LOGGER.info("Tipos das colunas:\n%s", dados.dtypes.to_string())
+    LOGGER.info("Valores ausentes:\n%s", dados.isna().sum().to_string())
+    LOGGER.info("Linhas duplicadas: %s", dados.duplicated().sum())
 
 
 def limpar_dados(dados: pd.DataFrame) -> pd.DataFrame:
@@ -141,22 +137,17 @@ def salvar_dados(dados: pd.DataFrame, caminho: Path) -> None:
 
 
 def main() -> None:
+    configurar_logging()
     dados_brutos = carregar_dados(ARQUIVO_ENTRADA)
-
     exibir_resumo(dados_brutos)
-
     dados_limpos = limpar_dados(dados_brutos)
-
     salvar_dados(dados_limpos, ARQUIVO_SAIDA)
 
-    print("\n--- RESULTADO DA LIMPEZA ---")
-    print(f"Registros antes da limpeza: {len(dados_brutos)}")
-    print(f"Registros depois da limpeza: {len(dados_limpos)}")
-    print(f"Registros removidos: {len(dados_brutos) - len(dados_limpos)}")
-    print(f"Arquivo salvo em: {ARQUIVO_SAIDA}")
-
-    print("\nPrimeiros registros processados:")
-    print(dados_limpos.head())
+    LOGGER.info("Registros antes da limpeza: %s", len(dados_brutos))
+    LOGGER.info("Registros depois da limpeza: %s", len(dados_limpos))
+    LOGGER.info("Registros removidos: %s", len(dados_brutos) - len(dados_limpos))
+    LOGGER.info("Arquivo salvo em: %s", ARQUIVO_SAIDA)
+    LOGGER.info("Primeiros registros processados:\n%s", dados_limpos.head().to_string())
 
 
 if __name__ == "__main__":

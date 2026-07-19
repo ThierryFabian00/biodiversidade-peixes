@@ -6,7 +6,13 @@ import pandas as pd
 from shapely import from_wkt
 from shapely.geometry import Polygon
 
-from src.extract_fish import buscar_ocorrencias_peixes, criar_prefiltro_wkt
+from src.config import ConfiguracaoAplicacao
+from src.extract_fish import (
+    buscar_ocorrencias_peixes,
+    criar_parser,
+    criar_prefiltro_wkt,
+    selecionar_grupo_taxonomico,
+)
 from src.transform_fish import (
     classificar_origem,
     normalizar_registro,
@@ -95,6 +101,48 @@ class TestExtracaoPeixes(unittest.TestCase):
 
         self.assertEqual(len(resultado.registros), 3)
         self.assertEqual(sessao.get.call_count, 2)
+
+    def test_aplica_somente_grupo_taxonomico_informado(self):
+        sessao = Mock()
+        sessao.get.return_value = criar_resposta(
+            {
+                "count": 1,
+                "endOfRecords": True,
+                "results": [{"key": 1}],
+            }
+        )
+
+        buscar_ocorrencias_peixes(
+            "POLYGON ((0 0, 1 0, 1 1, 0 0))",
+            max_registros=1,
+            sessao=sessao,
+            grupos_taxonomicos={"Actinopterygii": "8VR36"},
+        )
+
+        parametros = sessao.get.call_args.kwargs["params"]
+        self.assertEqual(
+            [valor for nome, valor in parametros if nome == "taxonKey"],
+            ["8VR36"],
+        )
+
+    def test_normaliza_grupo_e_rejeita_desconhecido(self):
+        self.assertEqual(
+            selecionar_grupo_taxonomico(" actinopterygii "),
+            {"Actinopterygii": "8VR36"},
+        )
+        with self.assertRaisesRegex(ValueError, "desconhecido"):
+            selecionar_grupo_taxonomico("Peixes imaginários")
+
+    def test_parser_usa_grupo_e_tamanho_de_pagina_configurados(self):
+        configuracao = ConfiguracaoAplicacao(
+            grupo_taxonomico="Elasmobranchii",
+            tamanho_pagina_padrao=80,
+        )
+
+        argumentos = criar_parser(configuracao).parse_args([])
+
+        self.assertEqual(argumentos.grupo_taxonomico, "Elasmobranchii")
+        self.assertEqual(argumentos.tamanho_pagina, 80)
 
 
 class TestTransformacaoPeixes(unittest.TestCase):

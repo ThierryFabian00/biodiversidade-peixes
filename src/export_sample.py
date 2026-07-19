@@ -1,12 +1,16 @@
 import argparse
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from src.logging_config import configurar_logging
 from src.transform_fish import ARQUIVO_OCORRENCIAS
+
+LOGGER = logging.getLogger(__name__)
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
 PASTA_AMOSTRA = PASTA_PROJETO / "data" / "sample"
@@ -145,18 +149,20 @@ def criar_parser() -> argparse.ArgumentParser:
     parser.add_argument("--saida", type=Path, default=ARQUIVO_AMOSTRA)
     parser.add_argument("--metadados", type=Path, default=ARQUIVO_METADADOS)
     parser.add_argument("--limite", type=int, default=100)
+    parser.add_argument("--verbose", action="store_true")
     return parser
 
 
 def main() -> None:
     argumentos = criar_parser().parse_args()
+    configurar_logging(argumentos.verbose)
     amostra = exportar_amostra(
         argumentos.entrada,
         argumentos.saida,
         argumentos.metadados,
         argumentos.limite,
     )
-    print(f"Amostra exportada: {len(amostra)} registros em {argumentos.saida}")
+    LOGGER.info("Amostra exportada: %s registros em %s", len(amostra), argumentos.saida)
 
 
 if __name__ == "__main__":

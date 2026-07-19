@@ -180,13 +180,13 @@ def criar_parser(
     parser.add_argument(
         "--max-registros",
         type=int,
-        default=None,
-        help="Quantidade máxima a coletar; sem este argumento, coleta todos.",
+        default=configuracao.limite_padrao,
+        help="Quantidade máxima de registros da consulta.",
     )
     parser.add_argument(
         "--tamanho-pagina",
         type=int,
-        default=configuracao.limite_padrao,
+        default=configuracao.tamanho_pagina_padrao,
         help=f"Registros por requisição, de 1 a {TAMANHO_MAXIMO_PAGINA}.",
     )
     parser.add_argument(

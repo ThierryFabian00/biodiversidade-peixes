@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,7 +9,11 @@ import geopandas as gpd
 import requests
 import truststore
 
+from src.logging_config import configurar_logging
+
 truststore.inject_into_ssl()
+
+LOGGER = logging.getLogger(__name__)
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
 PASTA_FONTE = PASTA_PROJETO / "data" / "geographic" / "ibge_dhn250_2021"
@@ -44,7 +49,7 @@ def baixar_arquivo(url: str, destino: Path) -> None:
 
 def garantir_fonte(forcar_download: bool = False) -> Path:
     if forcar_download or not ARQUIVO_ZIP.exists():
-        print(f"Baixando camada oficial do IBGE: {URL_FONTE}")
+        LOGGER.info("Baixando camada oficial do IBGE: %s", URL_FONTE)
         baixar_arquivo(URL_FONTE, ARQUIVO_ZIP)
 
     if forcar_download or not ARQUIVO_FONTE.exists():
@@ -139,17 +144,19 @@ def criar_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Baixa novamente a camada oficial mesmo se ela já existir.",
     )
+    parser.add_argument("--verbose", action="store_true")
     return parser
 
 
 def main() -> None:
     argumentos = criar_parser().parse_args()
+    configurar_logging(argumentos.verbose)
     fonte = garantir_fonte(argumentos.forcar_download)
     parana = preparar_limite(fonte, argumentos.saida)
 
-    print(f"Limite preparado em: {argumentos.saida}")
-    print(f"CRS de saída: {parana.crs}")
-    print(f"Área informada pelo IBGE: {parana.iloc[0]['area']:.2f} km²")
+    LOGGER.info("Limite preparado em: %s", argumentos.saida)
+    LOGGER.info("CRS de saída: %s", parana.crs)
+    LOGGER.info("Área informada pelo IBGE: %.2f km²", parana.iloc[0]["area"])
 
 
 if __name__ == "__main__":

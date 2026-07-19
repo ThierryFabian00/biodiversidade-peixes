@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,6 +10,10 @@ import pandas as pd
 
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
+
+from src.logging_config import configurar_logging
+
+LOGGER = logging.getLogger(__name__)
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
 ARQUIVO_ENTRADA = PASTA_PROJETO / "data" / "processed" / "ocorrencias_tilapia_limpo.csv"
@@ -163,11 +168,13 @@ def criar_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limite", type=Path, default=ARQUIVO_LIMITE)
     parser.add_argument("--saida", type=Path, default=ARQUIVO_SAIDA)
     parser.add_argument("--mapa", type=Path, default=ARQUIVO_MAPA)
+    parser.add_argument("--verbose", action="store_true")
     return parser
 
 
 def main() -> None:
     argumentos = criar_parser().parse_args()
+    configurar_logging(argumentos.verbose)
     if not argumentos.entrada.exists():
         raise FileNotFoundError(
             f"Arquivo processado não encontrado: {argumentos.entrada}"
@@ -187,11 +194,11 @@ def main() -> None:
     )
     gerar_mapa_validacao(classificados, limite, argumentos.mapa)
 
-    print(f"Registros avaliados: {len(classificados)}")
-    print(f"Registros dentro da bacia: {len(filtrados)}")
-    print(f"Registros fora da bacia: {len(classificados) - len(filtrados)}")
-    print(f"CSV salvo em: {argumentos.saida}")
-    print(f"Mapa de validação salvo em: {argumentos.mapa}")
+    LOGGER.info("Registros avaliados: %s", len(classificados))
+    LOGGER.info("Registros dentro da bacia: %s", len(filtrados))
+    LOGGER.info("Registros fora da bacia: %s", len(classificados) - len(filtrados))
+    LOGGER.info("CSV salvo em: %s", argumentos.saida)
+    LOGGER.info("Mapa de validação salvo em: %s", argumentos.mapa)
 
 
 if __name__ == "__main__":
