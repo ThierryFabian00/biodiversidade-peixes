@@ -6,8 +6,9 @@ from unittest.mock import patch
 from src.config import (
     ESPECIE_PADRAO,
     GRUPO_TAXONOMICO,
-    LIMITE_PADRAO,
+    LIMITE_CONSULTA_PADRAO,
     PAIS_PADRAO,
+    TAMANHO_PAGINA_PADRAO,
     ConfiguracaoAplicacao,
 )
 from src.database import ConfiguracaoBanco, validar_schema
@@ -25,14 +26,16 @@ class TestConfiguracaoAplicacao(unittest.TestCase):
 
         self.assertEqual(configuracao.pais_padrao, PAIS_PADRAO)
         self.assertEqual(configuracao.especie_padrao, ESPECIE_PADRAO)
-        self.assertEqual(configuracao.limite_padrao, LIMITE_PADRAO)
+        self.assertEqual(configuracao.limite_padrao, LIMITE_CONSULTA_PADRAO)
+        self.assertEqual(configuracao.tamanho_pagina_padrao, TAMANHO_PAGINA_PADRAO)
         self.assertEqual(configuracao.grupo_taxonomico, GRUPO_TAXONOMICO)
 
     def test_le_parametros_do_ambiente(self):
         ambiente = {
             "PAIS_PADRAO": "CH",
             "ESPECIE_PADRAO": "Salmo trutta",
-            "LIMITE_PADRAO": "120",
+            "LIMITE_CONSULTA_PADRAO": "120",
+            "TAMANHO_PAGINA_PADRAO": "75",
             "GRUPO_TAXONOMICO": "Actinopterygii",
             "GBIF_API": "https://example.test/v1/",
         }
@@ -42,6 +45,7 @@ class TestConfiguracaoAplicacao(unittest.TestCase):
         self.assertEqual(configuracao.pais_padrao, "CH")
         self.assertEqual(configuracao.especie_padrao, "Salmo trutta")
         self.assertEqual(configuracao.limite_padrao, 120)
+        self.assertEqual(configuracao.tamanho_pagina_padrao, 75)
         self.assertEqual(configuracao.gbif_api, "https://example.test/v1")
 
     def test_parser_usa_pais_especie_e_limite_configurados(self):
@@ -49,17 +53,25 @@ class TestConfiguracaoAplicacao(unittest.TestCase):
             pais_padrao="CH",
             especie_padrao="Salmo trutta",
             limite_padrao=120,
+            tamanho_pagina_padrao=60,
         )
         argumentos = criar_parser(configuracao).parse_args([])
 
         self.assertEqual(argumentos.pais, "CH")
         self.assertEqual(argumentos.especie, "Salmo trutta")
-        self.assertEqual(argumentos.tamanho_pagina, 120)
+        self.assertEqual(argumentos.max_registros, 120)
+        self.assertEqual(argumentos.tamanho_pagina, 60)
 
     def test_rejeita_limite_invalido(self):
-        with patch.dict(os.environ, {"LIMITE_PADRAO": "zero"}, clear=True):
+        with patch.dict(os.environ, {"LIMITE_CONSULTA_PADRAO": "zero"}, clear=True):
             with self.assertRaisesRegex(ValueError, "inteiro"):
                 ConfiguracaoAplicacao.do_ambiente(ENV_INEXISTENTE)
+
+    def test_aceita_nome_antigo_do_limite(self):
+        with patch.dict(os.environ, {"LIMITE_PADRAO": "450"}, clear=True):
+            configuracao = ConfiguracaoAplicacao.do_ambiente(ENV_INEXISTENTE)
+
+        self.assertEqual(configuracao.limite_padrao, 450)
 
 
 class TestConfiguracaoBanco(unittest.TestCase):

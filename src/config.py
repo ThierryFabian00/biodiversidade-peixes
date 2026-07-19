@@ -13,11 +13,13 @@ ARQUIVO_ENV = PASTA_PROJETO / ".env"
 
 GBIF_API = "https://api.gbif.org/v1"
 TAMANHO_MAXIMO_PAGINA = 300
+TAMANHO_PAGINA_PADRAO = 300
 LIMITE_BUSCA_GBIF = 100_000
 
 PAIS_PADRAO = "BR"
 ESPECIE_PADRAO = "Oreochromis niloticus"
-LIMITE_PADRAO = 300
+LIMITE_CONSULTA_PADRAO = 10_000
+LIMITE_PADRAO = LIMITE_CONSULTA_PADRAO  # Compatibilidade com a configuração inicial.
 GRUPO_TAXONOMICO = "Actinopterygii"
 LIMITE_AMOSTRA_PEIXES = 5_000
 
@@ -54,11 +56,18 @@ def _inteiro_positivo(nome: str, padrao: int) -> int:
     return numero
 
 
+def _limite_consulta_padrao() -> int:
+    if os.getenv("LIMITE_CONSULTA_PADRAO") is not None:
+        return _inteiro_positivo("LIMITE_CONSULTA_PADRAO", LIMITE_CONSULTA_PADRAO)
+    return _inteiro_positivo("LIMITE_PADRAO", LIMITE_CONSULTA_PADRAO)
+
+
 @dataclass(frozen=True)
 class ConfiguracaoAplicacao:
     pais_padrao: str = PAIS_PADRAO
     especie_padrao: str = ESPECIE_PADRAO
-    limite_padrao: int = LIMITE_PADRAO
+    limite_padrao: int = LIMITE_CONSULTA_PADRAO
+    tamanho_pagina_padrao: int = TAMANHO_PAGINA_PADRAO
     grupo_taxonomico: str = GRUPO_TAXONOMICO
     gbif_api: str = GBIF_API
 
@@ -68,7 +77,10 @@ class ConfiguracaoAplicacao:
         return cls(
             pais_padrao=os.getenv("PAIS_PADRAO", PAIS_PADRAO),
             especie_padrao=os.getenv("ESPECIE_PADRAO", ESPECIE_PADRAO),
-            limite_padrao=_inteiro_positivo("LIMITE_PADRAO", LIMITE_PADRAO),
+            limite_padrao=_limite_consulta_padrao(),
+            tamanho_pagina_padrao=_inteiro_positivo(
+                "TAMANHO_PAGINA_PADRAO", TAMANHO_PAGINA_PADRAO
+            ),
             grupo_taxonomico=os.getenv("GRUPO_TAXONOMICO", GRUPO_TAXONOMICO),
             gbif_api=os.getenv("GBIF_API", GBIF_API).rstrip("/"),
         )
