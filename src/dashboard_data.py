@@ -7,7 +7,9 @@ import psycopg
 from psycopg.rows import dict_row
 
 from src.analysis import ESTADOS_ESPERADOS, normalizar_estado
+from src.config import PAIS_PADRAO
 from src.database import validar_schema
+from src.services.country_service import normalizar_codigo_pais, obter_pais
 from src.transform_fish import ARQUIVO_ESPECIES, ARQUIVO_OCORRENCIAS
 
 
@@ -16,6 +18,8 @@ class ResultadoFonte:
     dados: pd.DataFrame
     fonte: str
     aviso: str | None = None
+    pais_codigo: str = PAIS_PADRAO
+    pais_nome: str = "Brasil"
 
 
 COLUNAS_DASHBOARD = [
@@ -114,13 +118,22 @@ def carregar_csv(
     )[COLUNAS_DASHBOARD]
 
 
-def normalizar_dados(dados: pd.DataFrame) -> pd.DataFrame:
+def normalizar_dados(
+    dados: pd.DataFrame, codigo_pais_fonte: str = PAIS_PADRAO
+) -> pd.DataFrame:
     ausentes = set(COLUNAS_DASHBOARD).difference(dados.columns)
     if ausentes:
         raise ValueError(
             f"Colunas ausentes para o dashboard: {', '.join(sorted(ausentes))}"
         )
+    pais_fonte = obter_pais(codigo_pais_fonte)
     resultado = dados.copy()
+    if "country_code" not in resultado:
+        resultado["country_code"] = pais_fonte.codigo_iso
+    resultado["country_code"] = resultado["country_code"].map(normalizar_codigo_pais)
+    resultado["country_name"] = resultado["country_code"].map(
+        lambda codigo: obter_pais(codigo).nome
+    )
     resultado["event_date"] = pd.to_datetime(
         resultado["event_date"], errors="coerce", utc=True, format="mixed"
     )
@@ -152,17 +165,37 @@ def carregar_dados_dashboard(
     schema: str,
     caminho_ocorrencias: Path = ARQUIVO_OCORRENCIAS,
     caminho_especies: Path = ARQUIVO_ESPECIES,
+    codigo_pais: str = PAIS_PADRAO,
 ) -> ResultadoFonte:
+    pais = obter_pais(codigo_pais)
+    aviso_fonte = None
     if database_url:
         try:
             dados = carregar_postgresql(database_url, schema)
-            return ResultadoFonte(normalizar_dados(dados), "PostgreSQL")
+            fonte = "PostgreSQL"
         except psycopg.Error:
-            aviso = "PostgreSQL indisponivel; exibindo os CSVs processados."
+            aviso_fonte = "PostgreSQL indisponivel; exibindo os CSVs processados."
+            dados = carregar_csv(caminho_ocorrencias, caminho_especies)
+            fonte = "CSV"
     else:
-        aviso = "DATABASE_URL ausente; exibindo os CSVs processados."
-    dados = carregar_csv(caminho_ocorrencias, caminho_especies)
-    return ResultadoFonte(normalizar_dados(dados), "CSV", aviso)
+        aviso_fonte = "DATABASE_URL ausente; exibindo os CSVs processados."
+        dados = carregar_csv(caminho_ocorrencias, caminho_especies)
+        fonte = "CSV"
+
+    dados = normalizar_dados(dados)
+    dados = dados.loc[dados["country_code"].eq(pais.codigo_iso)].copy()
+    avisos = [aviso_fonte] if aviso_fonte else []
+    if pais.codigo_iso != PAIS_PADRAO and dados.empty:
+        avisos.append(
+            f"Ainda não há dados importados para {pais.nome} ({pais.codigo_iso})."
+        )
+    return ResultadoFonte(
+        dados,
+        fonte,
+        " ".join(avisos) or None,
+        pais.codigo_iso,
+        pais.nome,
+    )
 
 
 def filtrar_ocorrencias(

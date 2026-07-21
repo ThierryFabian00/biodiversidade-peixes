@@ -44,6 +44,33 @@ A linha de comando multiespécies usa `GRUPO_TAXONOMICO` e registra no
 metadado exatamente o grupo consultado. Chamadas programáticas que não
 informam grupos preservam o conjunto legado de grupos de peixes.
 
+## Seleção de países
+
+O catálogo inicial da V2 é imutável durante a execução e associa nomes aos
+códigos ISO usados pelo parâmetro `country` da API GBIF:
+
+| País | Código |
+| --- | --- |
+| Brasil | `BR` |
+| Suíça | `CH` |
+| Alemanha | `DE` |
+| França | `FR` |
+
+O dashboard apresenta esse catálogo em um seletor, exibe o nome e o código do
+país escolhido e repassa o código validado ao carregamento. A mesma validação é
+usada por `ParametrosConsultaOcorrencia`, que envia o código no parâmetro
+`country` das consultas GBIF. Códigos malformados ou fora do catálogo são
+rejeitados.
+
+Para ampliar a lista, basta adicionar uma entrada a `PAISES` em `src.config`;
+a interface e a validação consomem o catálogo sem condicionais por país.
+
+Os CSVs processados e o schema da versão 1 não possuem coluna de país e são
+identificados como dados legados do Brasil. Assim, selecionar outro país não
+mistura registros brasileiros: o dashboard mostra um conjunto vazio e informa
+que os dados ainda não foram importados. A persistência mult país será tratada
+na etapa de evolução do modelo de dados.
+
 ## Logging
 
 Os comandos de extração, preparação geográfica, filtro, transformação, análise,

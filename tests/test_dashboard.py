@@ -7,6 +7,7 @@ import pandas as pd
 from src.dashboard_data import (
     calcular_indicadores,
     carregar_csv,
+    carregar_dados_dashboard,
     consulta_dashboard,
     distribuicao_origem,
     filtrar_ocorrencias,
@@ -97,6 +98,8 @@ class TestDadosDashboard(unittest.TestCase):
         )
         self.assertTrue(self.dados.loc[1, "missing_locality"])
         self.assertTrue(self.dados.loc[2, "unexpected_state"])
+        self.assertEqual(self.dados["country_code"].unique().tolist(), ["BR"])
+        self.assertEqual(self.dados["country_name"].unique().tolist(), ["Brasil"])
 
     def test_aplica_filtros_combinados(self):
         filtrados = filtrar_ocorrencias(
@@ -172,6 +175,64 @@ class TestDadosDashboard(unittest.TestCase):
 
         self.assertEqual(resultado.loc[0, "canonical_name"], "Species alpha")
         self.assertEqual(resultado.loc[0, "origin_status"], "NATIVE")
+
+    def test_seleciona_brasil_e_nao_mistura_base_legada_com_suica(self):
+        ocorrencias = pd.DataFrame(
+            [
+                {
+                    "gbifID": 1,
+                    "speciesKey": "A",
+                    "canonicalName": "Species alpha",
+                    "eventDate": "2020-01-02",
+                    "year": 2020,
+                    "month": 1,
+                    "decimalLatitude": -23,
+                    "decimalLongitude": -51,
+                    "stateProvince": "Parana",
+                    "locality": "Local",
+                    "basisOfRecord": "OBSERVATION",
+                    "taxonomicIssues": "",
+                    "occurrenceIssues": "",
+                }
+            ]
+        )
+        especies = pd.DataFrame(
+            [
+                {
+                    "speciesKey": "A",
+                    "family": "Alphaidae",
+                    "order": "Alphaformes",
+                    "originStatus": "NATIVE",
+                    "iucnCategory": "LC",
+                }
+            ]
+        )
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho_ocorrencias = Path(pasta) / "occurrences.csv"
+            caminho_especies = Path(pasta) / "species.csv"
+            ocorrencias.to_csv(caminho_ocorrencias, index=False)
+            especies.to_csv(caminho_especies, index=False)
+
+            brasil = carregar_dados_dashboard(
+                None,
+                "biodiversity",
+                caminho_ocorrencias,
+                caminho_especies,
+                codigo_pais="BR",
+            )
+            suica = carregar_dados_dashboard(
+                None,
+                "biodiversity",
+                caminho_ocorrencias,
+                caminho_especies,
+                codigo_pais="CH",
+            )
+
+        self.assertEqual(brasil.pais_nome, "Brasil")
+        self.assertEqual(brasil.dados["country_code"].tolist(), ["BR"])
+        self.assertEqual(suica.pais_nome, "Suíça")
+        self.assertTrue(suica.dados.empty)
+        self.assertIn("Suíça (CH)", suica.aviso)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config import PAIS_PADRAO  # noqa: E402
 from src.dashboard_data import (  # noqa: E402
     ResultadoFonte,
     calcular_indicadores,
@@ -26,6 +27,7 @@ from src.dashboard_data import (  # noqa: E402
 )
 from src.database import ConfiguracaoBanco  # noqa: E402
 from src.filter_basin import ARQUIVO_LIMITE  # noqa: E402
+from src.services.country_service import listar_paises, obter_pais  # noqa: E402
 
 CONFIGURACAO_BANCO = ConfiguracaoBanco.do_ambiente()
 
@@ -112,8 +114,10 @@ def aplicar_estilo() -> None:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def obter_dados(schema: str) -> ResultadoFonte:
-    return carregar_dados_dashboard(CONFIGURACAO_BANCO.database_url, schema)
+def obter_dados(schema: str, codigo_pais: str) -> ResultadoFonte:
+    return carregar_dados_dashboard(
+        CONFIGURACAO_BANCO.database_url, schema, codigo_pais=codigo_pais
+    )
 
 
 @st.cache_data(show_spinner=False)
@@ -148,7 +152,7 @@ def layout_grafico(figura: Any, altura: int = 390) -> Any:
     return figura
 
 
-def criar_mapa(dados: pd.DataFrame) -> pdk.Deck | None:
+def criar_mapa(dados: pd.DataFrame, exibir_limite: bool = True) -> pdk.Deck | None:
     pontos = dados.dropna(subset=["decimal_latitude", "decimal_longitude"]).copy()
     if pontos.empty:
         return None
@@ -159,7 +163,7 @@ def criar_mapa(dados: pd.DataFrame) -> pdk.Deck | None:
         lambda cor: cor if isinstance(cor, list) else CORES_ORIGEM["UNKNOWN"]
     )
     camadas = []
-    limite = obter_limite_geojson()
+    limite = obter_limite_geojson() if exibir_limite else None
     if limite:
         camadas.append(
             pdk.Layer(
@@ -209,21 +213,32 @@ def criar_mapa(dados: pd.DataFrame) -> pdk.Deck | None:
 
 aplicar_estilo()
 
+paises_disponiveis = listar_paises()
+nomes_por_codigo = {pais.codigo_iso: pais.nome for pais in paises_disponiveis}
+codigos_paises = [pais.codigo_iso for pais in paises_disponiveis]
+with st.sidebar:
+    st.header("Filtros")
+    codigo_pais = st.selectbox(
+        "País",
+        codigos_paises,
+        index=codigos_paises.index(PAIS_PADRAO),
+        format_func=lambda codigo: f"{nomes_por_codigo[codigo]} ({codigo})",
+    )
+    if st.button("Atualizar dados", icon=":material/refresh:", width="stretch"):
+        st.cache_data.clear()
+        st.rerun()
+
+pais = obter_pais(codigo_pais)
 schema = CONFIGURACAO_BANCO.schema
 try:
-    resultado = obter_dados(schema)
+    resultado = obter_dados(schema, pais.codigo_iso)
 except (FileNotFoundError, ValueError) as erro:
-    st.error(f"Dados indisponiveis: {erro}")
+    st.error(f"Dados indisponíveis: {erro}")
     st.stop()
 
 dados = resultado.dados
 
 with st.sidebar:
-    st.header("Filtros")
-    if st.button("Atualizar dados", icon=":material/refresh:", width="stretch"):
-        st.cache_data.clear()
-        st.rerun()
-
     especies_disponiveis = sorted(dados["canonical_name"].dropna().unique())
     especies = st.multiselect(
         "Espécies",
@@ -272,15 +287,26 @@ filtrados = filtrar_ocorrencias(
     estados=estados,
 )
 
-st.title("Peixes da Bacia do Paraná")
+titulo = (
+    "Peixes da Bacia do Paraná"
+    if pais.codigo_iso == PAIS_PADRAO
+    else f"Ocorrências de peixes — {pais.nome}"
+)
+descricao_pais = (
+    "Ocorrências publicadas na porção brasileira da Região Hidrográfica do Paraná"
+    if pais.codigo_iso == PAIS_PADRAO
+    else f"País selecionado: {pais.nome} ({pais.codigo_iso})"
+)
+st.title(titulo)
 st.html(
     f"""
     <div class="source-row">
-      <span>Ocorrências publicadas na porção brasileira da Região Hidrográfica do Paraná</span>
+      <span>{descricao_pais}</span>
       <span class="source-badge">Fonte ativa: {resultado.fonte}</span>
     </div>
     """
 )
+st.caption(f"País selecionado: {pais.nome} ({pais.codigo_iso})")
 if resultado.aviso:
     st.warning(resultado.aviso)
 
@@ -297,7 +323,10 @@ for coluna, (rotulo, valor) in zip(colunas_metricas, metricas, strict=True):
     coluna.metric(rotulo, valor)
 
 if filtrados.empty:
-    st.info("Nenhuma ocorrência corresponde aos filtros selecionados.")
+    st.info(
+        f"Nenhuma ocorrência disponível para {pais.nome} ({pais.codigo_iso}) "
+        "com os filtros selecionados."
+    )
     st.stop()
 
 aba_visao, aba_distribuicao, aba_qualidade, aba_dados = st.tabs(
@@ -370,7 +399,7 @@ with aba_visao:
     )
 
 with aba_distribuicao:
-    mapa = criar_mapa(filtrados)
+    mapa = criar_mapa(filtrados, exibir_limite=pais.codigo_iso == PAIS_PADRAO)
     if mapa:
         st.pydeck_chart(mapa, width="stretch", height=610)
     else:
@@ -492,6 +521,7 @@ with aba_dados:
     tabela_exibicao = tabela[
         [
             "gbif_id",
+            "country_name",
             "canonical_name",
             "origin_status",
             "event_date",
@@ -504,6 +534,7 @@ with aba_dados:
     ].rename(
         columns={
             "gbif_id": "GBIF ID",
+            "country_name": "País",
             "canonical_name": "Espécie",
             "origin_status": "Origem",
             "event_date": "Data",

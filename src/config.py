@@ -17,6 +17,14 @@ TAMANHO_PAGINA_PADRAO = 300
 LIMITE_BUSCA_GBIF = 100_000
 
 PAIS_PADRAO = "BR"
+PAISES: Mapping[str, str] = MappingProxyType(
+    {
+        "Brasil": "BR",
+        "Suíça": "CH",
+        "Alemanha": "DE",
+        "França": "FR",
+    }
+)
 ESPECIE_PADRAO = "Oreochromis niloticus"
 LIMITE_CONSULTA_PADRAO = 10_000
 LIMITE_PADRAO = LIMITE_CONSULTA_PADRAO  # Compatibilidade com a configuração inicial.
