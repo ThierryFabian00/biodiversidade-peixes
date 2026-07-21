@@ -30,6 +30,14 @@ class TestStreamlitApp(unittest.TestCase):
         metricas = {metrica.label: metrica.value for metrica in app.metric}
         self.assertEqual(metricas["Ocorrências"], "3.792")
         self.assertEqual(metricas["Espécies"], "356")
+        self.assertEqual(app.selectbox[0].label, "País")
+        self.assertEqual(app.selectbox[0].value, "BR")
+
+        app.selectbox[0].set_value("CH").run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual(app.title[0].value, "Ocorrências de peixes — Suíça")
+        self.assertTrue(any("Suíça (CH)" in item.value for item in app.info))
 
 
 if __name__ == "__main__":

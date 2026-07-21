@@ -8,12 +8,17 @@ from src.config import (
     GRUPO_TAXONOMICO,
     LIMITE_CONSULTA_PADRAO,
     PAIS_PADRAO,
+    PAISES,
     TAMANHO_PAGINA_PADRAO,
     ConfiguracaoAplicacao,
 )
 from src.database import ConfiguracaoBanco, validar_schema
 from src.extract import criar_parser
-from src.services.country_service import normalizar_codigo_pais
+from src.services.country_service import (
+    listar_paises,
+    normalizar_codigo_pais,
+    obter_pais,
+)
 from src.services.occurrence_service import ParametrosConsultaOcorrencia
 
 ENV_INEXISTENTE = Path("arquivo-inexistente.env")
@@ -99,14 +104,32 @@ class TestConfiguracaoBanco(unittest.TestCase):
 
 
 class TestServicosConsulta(unittest.TestCase):
-    def test_normaliza_codigo_iso(self):
-        self.assertEqual(normalizar_codigo_pais(" ch "), "CH")
+    def test_catalogo_de_paises_e_extensivel(self):
+        self.assertEqual(
+            dict(PAISES),
+            {"Brasil": "BR", "Suíça": "CH", "Alemanha": "DE", "França": "FR"},
+        )
+        self.assertEqual(
+            [(pais.nome, pais.codigo_iso) for pais in listar_paises()],
+            list(PAISES.items()),
+        )
 
-    def test_rejeita_codigo_iso_invalido(self):
+    def test_normaliza_brasil_e_suica(self):
+        self.assertEqual(normalizar_codigo_pais(" br "), "BR")
+        self.assertEqual(obter_pais(" ch ").nome, "Suíça")
+
+    def test_rejeita_codigo_iso_invalido_ou_nao_suportado(self):
         with self.assertRaisesRegex(ValueError, "ISO"):
             normalizar_codigo_pais("Brasil")
+        with self.assertRaisesRegex(ValueError, "não suportado"):
+            normalizar_codigo_pais("ZZ")
 
-    def test_monta_parametros_da_api(self):
+    def test_monta_parametros_da_api_para_brasil_e_suica(self):
+        consulta_brasil = ParametrosConsultaOcorrencia(taxon_key=123, pais="BR")
+        self.assertEqual(
+            consulta_brasil.parametros_api(offset=0, limite=50)["country"], "BR"
+        )
+
         consulta = ParametrosConsultaOcorrencia(
             taxon_key=123,
             pais=" ch ",
