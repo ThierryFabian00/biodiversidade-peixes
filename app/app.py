@@ -239,11 +239,24 @@ except (FileNotFoundError, ValueError) as erro:
 dados = resultado.dados
 
 with st.sidebar:
-    especies_disponiveis = sorted(dados["canonical_name"].dropna().unique())
+    catalogo_especies = (
+        dados[["species_key", "canonical_name"]]
+        .dropna()
+        .drop_duplicates("species_key")
+        .sort_values(["canonical_name", "species_key"])
+    )
+    nomes_especies = dict(
+        zip(
+            catalogo_especies["species_key"],
+            catalogo_especies["canonical_name"],
+            strict=True,
+        )
+    )
     especies = st.multiselect(
         "Espécies",
-        especies_disponiveis,
+        catalogo_especies["species_key"].tolist(),
         placeholder="Todas as espécies",
+        format_func=lambda chave: nomes_especies.get(chave, chave),
     )
     origens_disponiveis = sorted(dados["origin_status"].dropna().unique())
     origens = st.multiselect(
@@ -280,7 +293,7 @@ with st.sidebar:
 
 filtrados = filtrar_ocorrencias(
     dados,
-    especies=especies,
+    chaves_especies=especies,
     origens=origens,
     intervalo_anos=intervalo_anos,
     tipos=tipos,

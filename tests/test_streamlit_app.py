@@ -7,6 +7,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TEM_FONTE_LOCAL = (PROJECT_ROOT / ".env").exists() or (
     PROJECT_ROOT / "data" / "processed" / "ocorrencias_peixes_bacia_parana.csv"
 ).exists()
+TEM_DADOS_SUICA = (
+    PROJECT_ROOT / "data" / "processed" / "ocorrencias_peixes_ch.csv"
+).exists() and (PROJECT_ROOT / "data" / "processed" / "especies_peixes_ch.csv").exists()
 
 
 @unittest.skipUnless(
@@ -33,11 +36,23 @@ class TestStreamlitApp(unittest.TestCase):
         self.assertEqual(app.selectbox[0].label, "País")
         self.assertEqual(app.selectbox[0].value, "BR")
 
+        opcoes_especies = app.multiselect[0].options
+        self.assertGreaterEqual(len(opcoes_especies), 2)
+        app.multiselect[0].set_value(opcoes_especies[:2]).run()
+        self.assertFalse(app.exception)
+        self.assertEqual(len(app.multiselect[0].value), 2)
         app.selectbox[0].set_value("CH").run()
 
         self.assertFalse(app.exception)
         self.assertEqual(app.title[0].value, "Ocorrências de peixes — Suíça")
-        self.assertTrue(any("Suíça (CH)" in item.value for item in app.info))
+        if TEM_DADOS_SUICA:
+            metricas_suica = {metrica.label: metrica.value for metrica in app.metric}
+            self.assertEqual(metricas_suica["Ocorrências"], "4.802")
+            self.assertEqual(metricas_suica["Espécies"], "61")
+            self.assertEqual(len(app.multiselect[0].options), 61)
+            self.assertFalse(app.info)
+        else:
+            self.assertTrue(any("Suíça (CH)" in item.value for item in app.info))
 
 
 if __name__ == "__main__":

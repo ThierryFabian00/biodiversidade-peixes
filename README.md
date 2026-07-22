@@ -57,7 +57,7 @@ Preencha a conexao PostgreSQL em `.env` e execute o pipeline:
 
 ```powershell
 python -m src.prepare_boundary
-python -m src.extract_fish
+python -m src.extract_fish --pais BR --recorte-bacia
 python -m src.transform_fish
 python -m src.analysis
 python -m src.export_sample
@@ -116,6 +116,7 @@ fonte e ausencia eventual de metadados de publicacao na resposta da API.
 - [Arquitetura](docs/ARQUITETURA.md)
 - [Escopo do MVP da versão 2](docs/ESCOPO_MVP_V2.md)
 - [Configuração e refatoração da versão 2](docs/CONFIGURACAO_V2.md)
+- [Busca multiespécies por país](docs/BUSCA_MULTIESPECIES_V2.md)
 - [Recorte geografico](docs/RECORTE_GEOGRAFICO.md)
 - [Taxonomia e especies introduzidas](docs/TAXONOMIA_E_STATUS.md)
 - [Analises](docs/ANALISES.md)

@@ -16,12 +16,14 @@ from src.config import (
     GRUPOS_PEIXES,
     LIMITE_AMOSTRA_PEIXES,
     LIMITE_BUSCA_GBIF,
+    PAIS_PADRAO,
     TAMANHO_MAXIMO_PAGINA,
     ConfiguracaoAplicacao,
 )
 from src.filter_basin import ARQUIVO_LIMITE, carregar_limite
 from src.gbif_client import criar_sessao, requisitar_json
 from src.logging_config import configurar_logging
+from src.services.country_service import normalizar_codigo_pais
 
 LOGGER = logging.getLogger(__name__)
 
@@ -75,12 +77,13 @@ def requisitar_pagina(
 
 
 def buscar_ocorrencias_peixes(
-    geometria_wkt: str,
+    geometria_wkt: str | None = None,
     max_registros: int = MAX_REGISTROS_PADRAO,
     tamanho_pagina: int = TAMANHO_MAXIMO_PAGINA,
     sessao: requests.Session | None = None,
     grupos_taxonomicos: Mapping[str, str] = GRUPOS_PEIXES,
     gbif_api: str = GBIF_API,
+    pais: str = PAIS_PADRAO,
 ) -> ResultadoPeixes:
     if not 1 <= tamanho_pagina <= TAMANHO_MAXIMO_PAGINA:
         raise ValueError(
@@ -92,6 +95,7 @@ def buscar_ocorrencias_peixes(
         )
     if not grupos_taxonomicos:
         raise ValueError("Informe ao menos um grupo taxonômico.")
+    pais = normalizar_codigo_pais(pais)
 
     sessao = sessao or criar_sessao()
     registros: list[dict[str, Any]] = []
@@ -104,12 +108,12 @@ def buscar_ocorrencias_peixes(
         parametros = [
             *(("taxonKey", chave) for chave in grupos_taxonomicos.values()),
             ("checklistKey", CHECKLIST_COL),
-            ("geometry", geometria_wkt),
-            ("hasCoordinate", "true"),
+            ("country", pais),
             ("occurrenceStatus", "PRESENT"),
-            ("limit", limite),
-            ("offset", offset),
         ]
+        if geometria_wkt:
+            parametros.extend([("geometry", geometria_wkt), ("hasCoordinate", "true")])
+        parametros.extend([("limit", limite), ("offset", offset)])
         dados = requisitar_pagina(sessao, parametros, gbif_api)
         pagina = dados["results"]
         paginas += 1
@@ -127,10 +131,11 @@ def buscar_ocorrencias_peixes(
 def salvar_resultado(
     resultado: ResultadoPeixes,
     caminho_saida: Path,
-    caminho_limite: Path,
+    caminho_limite: Path | None,
     max_registros: int,
     grupos_taxonomicos: Mapping[str, str] = GRUPOS_PEIXES,
     gbif_api: str = GBIF_API,
+    pais: str = PAIS_PADRAO,
 ) -> None:
     caminho_saida.parent.mkdir(parents=True, exist_ok=True)
     with caminho_saida.open("w", encoding="utf-8") as arquivo:
@@ -138,15 +143,19 @@ def salvar_resultado(
             arquivo.write(json.dumps(registro, ensure_ascii=False))
             arquivo.write("\n")
 
+    pais = normalizar_codigo_pais(pais)
     metadados = {
         "extractedAt": datetime.now(timezone.utc).isoformat(),
         "source": f"{gbif_api}/occurrence/search",
         "checklistKey": CHECKLIST_COL,
         "taxonGroups": dict(grupos_taxonomicos),
-        "spatialPrefilter": "convex hull of the basin boundary",
-        "exactBoundaryFile": str(caminho_limite),
+        "country": pais,
+        "spatialPrefilter": (
+            "convex hull of the basin boundary" if caminho_limite else "country"
+        ),
+        "exactBoundaryFile": str(caminho_limite) if caminho_limite else None,
         "occurrenceStatus": "PRESENT",
-        "hasCoordinate": True,
+        "hasCoordinate": bool(caminho_limite),
         "sampleLimit": max_registros,
         "recordsCollected": len(resultado.registros),
         "recordsAvailableInPrefilter": resultado.total_disponivel,
@@ -173,6 +182,16 @@ def criar_parser(
     )
     parser.add_argument("--limite", type=Path, default=ARQUIVO_LIMITE)
     parser.add_argument(
+        "--recorte-bacia",
+        action="store_true",
+        help="Combina o país com o limite da Bacia do Paraná.",
+    )
+    parser.add_argument(
+        "--pais",
+        default=configuracao.pais_padrao,
+        help=f"Código ISO do país (padrão: {configuracao.pais_padrao}).",
+    )
+    parser.add_argument(
         "--grupo-taxonomico",
         default=configuracao.grupo_taxonomico,
         help="Grupo de peixes consultado no GBIF.",
@@ -196,8 +215,13 @@ def main() -> None:
     configuracao = ConfiguracaoAplicacao.do_ambiente()
     argumentos = criar_parser(configuracao).parse_args()
     configurar_logging(argumentos.verbose)
-    limite = carregar_limite(argumentos.limite)
-    geometria_wkt = criar_prefiltro_wkt(limite)
+    pais = normalizar_codigo_pais(argumentos.pais)
+    geometria_wkt = None
+    caminho_limite = None
+    if argumentos.recorte_bacia:
+        limite = carregar_limite(argumentos.limite)
+        geometria_wkt = criar_prefiltro_wkt(limite)
+        caminho_limite = argumentos.limite
     grupos_taxonomicos = selecionar_grupo_taxonomico(argumentos.grupo_taxonomico)
     resultado = buscar_ocorrencias_peixes(
         geometria_wkt,
@@ -205,16 +229,19 @@ def main() -> None:
         tamanho_pagina=argumentos.tamanho_pagina,
         grupos_taxonomicos=grupos_taxonomicos,
         gbif_api=configuracao.gbif_api,
+        pais=pais,
     )
     salvar_resultado(
         resultado,
         argumentos.saida,
-        argumentos.limite,
+        caminho_limite,
         argumentos.max_registros,
         grupos_taxonomicos=grupos_taxonomicos,
         gbif_api=configuracao.gbif_api,
+        pais=pais,
     )
 
+    LOGGER.info("País: %s", pais)
     LOGGER.info("Grupo taxonômico: %s", argumentos.grupo_taxonomico)
     LOGGER.info("Registros disponíveis no pré-filtro: %s", resultado.total_disponivel)
     LOGGER.info("Registros coletados na amostra: %s", len(resultado.registros))
