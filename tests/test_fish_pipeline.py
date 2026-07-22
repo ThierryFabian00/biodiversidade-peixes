@@ -125,6 +125,29 @@ class TestExtracaoPeixes(unittest.TestCase):
             ["8VR36"],
         )
 
+    def test_consulta_grupo_no_pais_escolhido(self):
+        sessao = Mock()
+        sessao.get.return_value = criar_resposta(
+            {"count": 0, "endOfRecords": True, "results": []}
+        )
+
+        buscar_ocorrencias_peixes(
+            max_registros=1,
+            sessao=sessao,
+            grupos_taxonomicos={"Actinopterygii": "8VR36"},
+            pais=" ch ",
+        )
+
+        parametros = dict(sessao.get.call_args.kwargs["params"])
+        self.assertEqual(parametros["country"], "CH")
+        self.assertEqual(parametros["taxonKey"], "8VR36")
+        self.assertNotIn("geometry", parametros)
+        self.assertNotIn("hasCoordinate", parametros)
+
+    def test_rejeita_pais_invalido_na_consulta_multiespecies(self):
+        with self.assertRaisesRegex(ValueError, "não suportado"):
+            buscar_ocorrencias_peixes(max_registros=1, sessao=Mock(), pais="ZZ")
+
     def test_normaliza_grupo_e_rejeita_desconhecido(self):
         self.assertEqual(
             selecionar_grupo_taxonomico(" actinopterygii "),
@@ -142,6 +165,8 @@ class TestExtracaoPeixes(unittest.TestCase):
         argumentos = criar_parser(configuracao).parse_args([])
 
         self.assertEqual(argumentos.grupo_taxonomico, "Elasmobranchii")
+        self.assertEqual(argumentos.pais, "BR")
+        self.assertFalse(argumentos.recorte_bacia)
         self.assertEqual(argumentos.tamanho_pagina, 80)
 
 
@@ -161,6 +186,44 @@ class TestTransformacaoPeixes(unittest.TestCase):
         self.assertEqual(normalizado["fishGroup"], "Actinopterygii")
         self.assertEqual(normalizado["datasetName"], "Dataset de teste")
         self.assertIn("creativecommons.org/licenses/by/4.0", normalizado["license"])
+
+    def test_preserva_nome_original_aceito_e_trata_sinonimo(self):
+        aceito = registro_especie(1)
+        aceito["countryCode"] = "CH"
+        sinonimo = registro_especie(2)
+        sinonimo["countryCode"] = "CH"
+        sinonimo["verbatimScientificName"] = "  Pimelodus   synonymus Autor, 1900 "
+        classificacao = sinonimo["classifications"][
+            "7ddf754f-d193-4cc9-b351-99906754a03b"
+        ]
+        classificacao["usage"] = {
+            "key": "SYN1",
+            "name": "Pimelodus synonymus Autor, 1900",
+            "rank": "SPECIES",
+        }
+        classificacao["taxonomicStatus"] = "SYNONYM"
+
+        ocorrencias, especies, problemas, resumo = transformar_registros(
+            [aceito, sinonimo], None
+        )
+
+        self.assertTrue(problemas.empty)
+        self.assertEqual(resumo, {"normalized": 2, "inside": 2, "outside": 0})
+        self.assertEqual(len(especies), 1)
+        self.assertEqual(ocorrencias.loc[1, "speciesKey"], "SP1")
+        self.assertEqual(
+            ocorrencias.loc[1, "originalScientificName"],
+            "Pimelodus synonymus Autor, 1900",
+        )
+        self.assertEqual(
+            ocorrencias.loc[1, "acceptedScientificName"],
+            "Pimelodus maculatus Lacépède, 1803",
+        )
+        self.assertTrue(ocorrencias.loc[1, "isSynonym"])
+        self.assertTrue(especies.loc[0, "hasSynonyms"])
+        self.assertEqual(
+            especies.loc[0, "synonymNames"], "Pimelodus synonymus Autor, 1900"
+        )
 
     def test_rejeita_identificacao_acima_de_especie(self):
         _, problema = normalizar_registro(registro_especie(1, rank="GENUS"))

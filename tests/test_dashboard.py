@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -113,6 +114,13 @@ class TestDadosDashboard(unittest.TestCase):
 
         self.assertEqual(filtrados["gbif_id"].tolist(), [3])
 
+    def test_seleciona_uma_ou_varias_especies_pela_chave_aceita(self):
+        uma = filtrar_ocorrencias(self.dados, chaves_especies=["A"])
+        varias = filtrar_ocorrencias(self.dados, chaves_especies=["A", "B"])
+
+        self.assertEqual(uma["gbif_id"].tolist(), [1, 3])
+        self.assertEqual(varias["gbif_id"].tolist(), [1, 2, 3])
+
     def test_calcula_resumos_do_recorte(self):
         indicadores = calcular_indicadores(self.dados)
         ranking = ranking_especies(self.dados)
@@ -141,6 +149,9 @@ class TestDadosDashboard(unittest.TestCase):
                     "gbifID": 1,
                     "speciesKey": "A",
                     "canonicalName": "Species alpha",
+                    "family": "Occurrence family",
+                    "order": "Occurrence order",
+                    "iucnCategory": "DD",
                     "eventDate": "2020-01-02",
                     "year": 2020,
                     "month": 1,
@@ -175,6 +186,9 @@ class TestDadosDashboard(unittest.TestCase):
 
         self.assertEqual(resultado.loc[0, "canonical_name"], "Species alpha")
         self.assertEqual(resultado.loc[0, "origin_status"], "NATIVE")
+        self.assertEqual(resultado.loc[0, "family"], "Alphaidae")
+        self.assertEqual(resultado.loc[0, "order_name"], "Alphaformes")
+        self.assertEqual(resultado.loc[0, "iucn_category"], "LC")
 
     def test_seleciona_brasil_e_nao_mistura_base_legada_com_suica(self):
         ocorrencias = pd.DataFrame(
@@ -227,12 +241,27 @@ class TestDadosDashboard(unittest.TestCase):
                 caminho_especies,
                 codigo_pais="CH",
             )
+            with patch(
+                "src.dashboard_data.caminhos_processados_pais",
+                return_value=(
+                    caminho_ocorrencias,
+                    caminho_especies,
+                    Path(pasta) / "problemas.csv",
+                ),
+            ):
+                suica_importada = carregar_dados_dashboard(
+                    None, "biodiversity", codigo_pais="CH"
+                )
 
         self.assertEqual(brasil.pais_nome, "Brasil")
         self.assertEqual(brasil.dados["country_code"].tolist(), ["BR"])
         self.assertEqual(suica.pais_nome, "Suíça")
         self.assertTrue(suica.dados.empty)
         self.assertIn("Suíça (CH)", suica.aviso)
+        self.assertEqual(suica_importada.dados["country_code"].tolist(), ["CH"])
+        self.assertEqual(
+            suica_importada.dados["canonical_name"].tolist(), ["Species alpha"]
+        )
 
 
 if __name__ == "__main__":

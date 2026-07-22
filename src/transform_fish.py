@@ -12,6 +12,7 @@ from src.extract_fish import ARQUIVO_SAIDA as ARQUIVO_ENTRADA
 from src.extract_fish import CHECKLIST_COL, GRUPOS_PEIXES
 from src.filter_basin import ARQUIVO_LIMITE, carregar_limite, classificar_ocorrencias
 from src.logging_config import configurar_logging
+from src.services.country_service import normalizar_codigo_pais
 
 LOGGER = logging.getLogger(__name__)
 
@@ -30,6 +31,20 @@ ARQUIVO_REFERENCIA_ORIGEM = (
 COLUNAS_PROBLEMAS = ["gbifID", "scientificName", "problem"]
 
 
+def caminhos_processados_pais(codigo_pais: str) -> tuple[Path, Path, Path]:
+    """Resolve os CSVs reconhecidos automaticamente pelo dashboard."""
+    codigo = normalizar_codigo_pais(codigo_pais)
+    if codigo == "BR":
+        return ARQUIVO_OCORRENCIAS, ARQUIVO_ESPECIES, ARQUIVO_PROBLEMAS
+    sufixo = codigo.casefold()
+    pasta = PASTA_PROJETO / "data" / "processed"
+    return (
+        pasta / f"ocorrencias_peixes_{sufixo}.csv",
+        pasta / f"especies_peixes_{sufixo}.csv",
+        pasta / f"problemas_taxonomicos_{sufixo}.csv",
+    )
+
+
 def carregar_jsonl(caminho: Path) -> list[dict[str, Any]]:
     if not caminho.exists():
         raise FileNotFoundError(f"Arquivo bruto não encontrado: {caminho}")
@@ -43,6 +58,13 @@ def valor_vocabulario(valor: Any) -> str | None:
     if isinstance(valor, dict):
         return valor.get("concept") or valor.get("value")
     return None
+
+
+def normalizar_nome_cientifico(valor: Any) -> str | None:
+    """Remove espaços redundantes sem descartar autoria ou epítetos."""
+    if not isinstance(valor, str) or not valor.strip():
+        return None
+    return " ".join(valor.split())
 
 
 def extrair_hierarquia(classificacao: dict[str, Any]) -> dict[str, Any]:
@@ -83,14 +105,35 @@ def normalizar_registro(
     especie_hierarquia = hierarquia.get("SPECIES", {})
     problemas_col = classificacao.get("issues") or []
     problemas_ocorrencia = registro.get("issues") or []
+    nome_original = normalizar_nome_cientifico(
+        registro.get("verbatimScientificName") or registro.get("scientificName")
+    )
+    nome_interpretado = normalizar_nome_cientifico(
+        uso.get("name") or registro.get("scientificName")
+    )
+    nome_aceito = normalizar_nome_cientifico(aceito.get("name"))
+    nome_canonico = normalizar_nome_cientifico(
+        aceito.get("canonicalName") or especie_hierarquia.get("name")
+    )
+    status_taxonomico = classificacao.get("taxonomicStatus") or uso.get("status")
+    status_normalizado = str(status_taxonomico or "UNKNOWN").upper()
+    sinonimo = str(uso.get("key")) != str(aceito.get("key")) or status_normalizado in {
+        "SYNONYM",
+        "HETEROTYPIC_SYNONYM",
+        "HOMOTYPIC_SYNONYM",
+        "PROPARTE_SYNONYM",
+    }
 
     normalizado = {
         "gbifID": registro.get("key"),
         "speciesKey": str(aceito["key"]),
-        "scientificName": uso.get("name") or registro.get("scientificName"),
-        "acceptedScientificName": aceito.get("name"),
-        "canonicalName": especie_hierarquia.get("name"),
-        "taxonomicStatus": classificacao.get("taxonomicStatus"),
+        "originalScientificName": nome_original,
+        "scientificName": nome_interpretado,
+        "acceptedScientificName": nome_aceito,
+        "canonicalName": nome_canonico,
+        "taxonomicStatus": status_normalizado,
+        "isSynonym": sinonimo,
+        "countryCode": str(registro.get("countryCode") or "").upper() or None,
         "fishGroup": identificar_grupo(classificacao),
         "class": hierarquia.get("CLASS", {}).get("name"),
         "order": hierarquia.get("ORDER", {}).get("name"),
@@ -168,8 +211,11 @@ def criar_tabela_especies(
     linhas: list[dict[str, Any]] = []
     campos_taxonomicos = [
         "speciesKey",
+        "originalScientificName",
+        "scientificName",
         "acceptedScientificName",
         "canonicalName",
+        "taxonomicStatus",
         "fishGroup",
         "class",
         "order",
@@ -187,8 +233,28 @@ def criar_tabela_especies(
             }
         )
         linha = {campo: primeira.get(campo) for campo in campos_taxonomicos}
+        nomes_originais = sorted(
+            {str(valor) for valor in grupo["originalScientificName"].dropna()}
+        )
+        nomes_interpretados = sorted(
+            {str(valor) for valor in grupo["scientificName"].dropna()}
+        )
+        status_taxonomicos = sorted(
+            {str(valor) for valor in grupo["taxonomicStatus"].dropna()}
+        )
+        sinonimos = sorted(
+            {
+                str(valor)
+                for valor in grupo.loc[grupo["isSynonym"], "scientificName"].dropna()
+            }
+        )
         linha.update(
             {
+                "originalScientificNames": "|".join(nomes_originais),
+                "scientificNames": "|".join(nomes_interpretados),
+                "taxonomicStatuses": "|".join(status_taxonomicos),
+                "synonymNames": "|".join(sinonimos),
+                "hasSynonyms": bool(sinonimos),
                 "occurrenceCount": len(grupo),
                 "firstYear": grupo["year"].min(),
                 "lastYear": grupo["year"].max(),
@@ -210,7 +276,7 @@ def criar_tabela_especies(
 
 def transformar_registros(
     registros: list[dict[str, Any]],
-    limite: gpd.GeoDataFrame,
+    limite: gpd.GeoDataFrame | None,
     referencia_origem: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
     normalizados: list[dict[str, Any]] = []
@@ -245,9 +311,14 @@ def transformar_registros(
     ocorrencias["year"] = ocorrencias["eventDate"].dt.year.astype("Int64")
     ocorrencias["month"] = ocorrencias["eventDate"].dt.month.astype("Int64")
 
-    classificadas = classificar_ocorrencias(ocorrencias, limite)
-    dentro = classificadas[classificadas["insideBasin"]].copy()
-    dentro = dentro.drop(columns="geometry").reset_index(drop=True)
+    if limite is None:
+        classificadas = ocorrencias.copy()
+        classificadas["insideBasin"] = True
+        dentro = classificadas.reset_index(drop=True)
+    else:
+        classificadas = classificar_ocorrencias(ocorrencias, limite)
+        dentro = classificadas[classificadas["insideBasin"]].copy()
+        dentro = dentro.drop(columns="geometry").reset_index(drop=True)
     especies = criar_tabela_especies(pd.DataFrame(dentro), referencia_origem)
     tabela_problemas = pd.DataFrame(problemas, columns=COLUNAS_PROBLEMAS)
     resumo = {
@@ -314,6 +385,11 @@ def criar_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--entrada", type=Path, default=ARQUIVO_ENTRADA)
     parser.add_argument("--limite", type=Path, default=ARQUIVO_LIMITE)
+    parser.add_argument(
+        "--sem-recorte-bacia",
+        action="store_true",
+        help="Mantém todas as ocorrências do país informado na extração.",
+    )
     parser.add_argument("--ocorrencias", type=Path, default=ARQUIVO_OCORRENCIAS)
     parser.add_argument("--especies", type=Path, default=ARQUIVO_ESPECIES)
     parser.add_argument("--problemas", type=Path, default=ARQUIVO_PROBLEMAS)
@@ -338,7 +414,9 @@ def main() -> None:
         if caminho_metadados_entrada.exists()
         else None
     )
-    limite = carregar_limite(argumentos.limite)
+    limite = (
+        None if argumentos.sem_recorte_bacia else carregar_limite(argumentos.limite)
+    )
     referencia_origem = pd.read_csv(argumentos.referencia_origem)
     ocorrencias, especies, problemas, resumo = transformar_registros(
         registros, limite, referencia_origem

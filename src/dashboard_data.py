@@ -10,7 +10,11 @@ from src.analysis import ESTADOS_ESPERADOS, normalizar_estado
 from src.config import PAIS_PADRAO
 from src.database import validar_schema
 from src.services.country_service import normalizar_codigo_pais, obter_pais
-from src.transform_fish import ARQUIVO_ESPECIES, ARQUIVO_OCORRENCIAS
+from src.transform_fish import (
+    ARQUIVO_ESPECIES,
+    ARQUIVO_OCORRENCIAS,
+    caminhos_processados_pais,
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,11 @@ def carregar_csv(
         )
     ocorrencias = pd.read_csv(caminho_ocorrencias)
     especies = pd.read_csv(caminho_especies)
+    # Occurrence rows also preserve taxonomy; the species catalog is authoritative.
+    ocorrencias = ocorrencias.drop(
+        columns=["family", "order", "iucnCategory"], errors="ignore"
+    )
+
     especies = especies[
         [
             "speciesKey",
@@ -134,6 +143,7 @@ def normalizar_dados(
     resultado["country_name"] = resultado["country_code"].map(
         lambda codigo: obter_pais(codigo).nome
     )
+    resultado["species_key"] = resultado["species_key"].astype("string")
     resultado["event_date"] = pd.to_datetime(
         resultado["event_date"], errors="coerce", utc=True, format="mixed"
     )
@@ -163,26 +173,55 @@ def normalizar_dados(
 def carregar_dados_dashboard(
     database_url: str | None,
     schema: str,
-    caminho_ocorrencias: Path = ARQUIVO_OCORRENCIAS,
-    caminho_especies: Path = ARQUIVO_ESPECIES,
+    caminho_ocorrencias: Path | None = None,
+    caminho_especies: Path | None = None,
     codigo_pais: str = PAIS_PADRAO,
 ) -> ResultadoFonte:
     pais = obter_pais(codigo_pais)
+    caminhos_automaticos = caminho_ocorrencias is None and caminho_especies is None
+    if (caminho_ocorrencias is None) != (caminho_especies is None):
+        raise ValueError("Informe os dois caminhos CSV ou nenhum deles.")
+    if caminhos_automaticos:
+        caminho_ocorrencias, caminho_especies, _ = caminhos_processados_pais(
+            pais.codigo_iso
+        )
+    assert caminho_ocorrencias is not None
+    assert caminho_especies is not None
+    arquivos_do_pais_disponiveis = (
+        caminhos_automaticos
+        and pais.codigo_iso != PAIS_PADRAO
+        and caminho_ocorrencias.exists()
+        and caminho_especies.exists()
+    )
     aviso_fonte = None
-    if database_url:
+    if arquivos_do_pais_disponiveis:
+        dados = carregar_csv(caminho_ocorrencias, caminho_especies)
+        fonte = "CSV"
+    elif database_url:
         try:
             dados = carregar_postgresql(database_url, schema)
             fonte = "PostgreSQL"
         except psycopg.Error:
             aviso_fonte = "PostgreSQL indisponivel; exibindo os CSVs processados."
+            if caminhos_automaticos and not (
+                caminho_ocorrencias.exists() and caminho_especies.exists()
+            ):
+                caminho_ocorrencias = ARQUIVO_OCORRENCIAS
+                caminho_especies = ARQUIVO_ESPECIES
             dados = carregar_csv(caminho_ocorrencias, caminho_especies)
             fonte = "CSV"
     else:
         aviso_fonte = "DATABASE_URL ausente; exibindo os CSVs processados."
+        if caminhos_automaticos and not (
+            caminho_ocorrencias.exists() and caminho_especies.exists()
+        ):
+            caminho_ocorrencias = ARQUIVO_OCORRENCIAS
+            caminho_especies = ARQUIVO_ESPECIES
         dados = carregar_csv(caminho_ocorrencias, caminho_especies)
         fonte = "CSV"
 
-    dados = normalizar_dados(dados)
+    codigo_pais_fonte = pais.codigo_iso if arquivos_do_pais_disponiveis else PAIS_PADRAO
+    dados = normalizar_dados(dados, codigo_pais_fonte)
     dados = dados.loc[dados["country_code"].eq(pais.codigo_iso)].copy()
     avisos = [aviso_fonte] if aviso_fonte else []
     if pais.codigo_iso != PAIS_PADRAO and dados.empty:
@@ -201,6 +240,7 @@ def carregar_dados_dashboard(
 def filtrar_ocorrencias(
     dados: pd.DataFrame,
     especies: Sequence[str] | None = None,
+    chaves_especies: Sequence[str] | None = None,
     origens: Sequence[str] | None = None,
     intervalo_anos: tuple[int, int] | None = None,
     tipos: Sequence[str] | None = None,
@@ -209,6 +249,8 @@ def filtrar_ocorrencias(
     mascara = pd.Series(True, index=dados.index)
     if especies:
         mascara &= dados["canonical_name"].isin(especies)
+    if chaves_especies:
+        mascara &= dados["species_key"].isin(chaves_especies)
     if origens:
         mascara &= dados["origin_status"].isin(origens)
     if intervalo_anos:
