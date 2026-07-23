@@ -89,7 +89,9 @@ class TestDadosDashboard(unittest.TestCase):
         self.dados = normalizar_dados(dados_dashboard())
 
     def test_consulta_rejeita_schema_inseguro(self):
-        self.assertIn("JOIN biodiversity.species", consulta_dashboard("biodiversity"))
+        consulta = consulta_dashboard("biodiversity")
+        self.assertIn("JOIN biodiversity.taxa", consulta)
+        self.assertIn("WHERE o.country_code = %s", consulta)
         with self.assertRaises(ValueError):
             consulta_dashboard("biodiversity;drop")
 

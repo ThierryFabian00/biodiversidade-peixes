@@ -7,10 +7,12 @@ import pandas as pd
 import psycopg
 
 from src.load import (
+    ARQUIVO_SCHEMA,
     carregar_registros,
     criar_comandos_schema,
-    preparar_especies,
     preparar_ocorrencias,
+    preparar_paises,
+    preparar_taxa,
     validar_referencias,
     validar_schema,
     verificar_carga,
@@ -18,18 +20,23 @@ from src.load import (
 from src.query_db import criar_consultas, executar_consulta
 
 
-def tabela_especies():
+def tabela_taxa():
     return pd.DataFrame(
         [
             {
                 "speciesKey": "SP1",
+                "scientificName": "Species alpha Author, 1900",
                 "acceptedScientificName": "Species alpha Author, 1900",
                 "canonicalName": "Species alpha",
+                "taxonomicStatus": "ACCEPTED",
+                "kingdom": "Animalia",
+                "phylum": "Chordata",
                 "fishGroup": "Actinopterygii",
                 "class": "Teleostei",
                 "order": "Testiformes",
                 "family": "Testidae",
                 "genus": "Species",
+                "species": "Species alpha",
                 "iucnCategory": pd.NA,
                 "occurrenceCount": 1,
                 "firstYear": 2020,
@@ -45,18 +52,19 @@ def tabela_especies():
     )
 
 
-def tabela_ocorrencias(species_key="SP1"):
+def tabela_ocorrencias(taxon_key="SP1", country_code="BR", gbif_key=10):
     return pd.DataFrame(
         [
             {
-                "gbifID": 10,
-                "speciesKey": species_key,
+                "gbifID": gbif_key,
+                "speciesKey": taxon_key,
+                "countryCode": country_code,
                 "scientificName": "Species alpha Author, 1900",
                 "taxonomicStatus": "ACCEPTED",
                 "decimalLatitude": -23.5,
                 "decimalLongitude": -51.5,
                 "eventDate": "2020-02-03T10:30:00Z",
-                "eventDateOriginal": "2020-02-03T10:30:00",
+                "eventDateOriginal": "2020-02-03",
                 "year": 2020,
                 "month": 2,
                 "stateProvince": "Parana",
@@ -112,85 +120,138 @@ class ConexaoFalsa:
 
 
 class TestModeloPostgreSQL(unittest.TestCase):
-    def test_valida_schema_e_cria_restricoes(self):
+    def test_cria_modelo_multicountry_com_chaves_relacionamentos_e_indices(self):
         comandos = "\n".join(criar_comandos_schema("biodiversity"))
 
+        self.assertTrue(ARQUIVO_SCHEMA.exists())
         self.assertEqual(validar_schema("biodiversity_2"), "biodiversity_2")
-        self.assertIn("PRIMARY KEY", comandos)
-        self.assertIn("REFERENCES biodiversity.species", comandos)
-        self.assertIn("CREATE OR REPLACE VIEW", comandos)
+        for tabela in ("countries", "taxa", "occurrences", "data_imports"):
+            self.assertIn(f"biodiversity.{tabela}", comandos)
+        self.assertIn("taxon_key TEXT PRIMARY KEY", comandos)
+        self.assertIn("gbif_key BIGINT PRIMARY KEY", comandos)
+        self.assertIn("REFERENCES biodiversity.taxa(taxon_key)", comandos)
+        self.assertIn("REFERENCES biodiversity.countries(iso_code)", comandos)
+        self.assertIn("idx_occurrences_country", comandos)
+        self.assertIn("idx_occurrences_taxon", comandos)
+        self.assertIn("idx_occurrences_year", comandos)
+        self.assertIn("RENAME TO taxa", comandos)
         with self.assertRaises(ValueError):
-            validar_schema("biodiversity; DROP TABLE species")
+            validar_schema("biodiversity; DROP TABLE taxa")
 
-    def test_prepara_tipos_nulos_data_e_booleano(self):
-        especie = preparar_especies(tabela_especies())[0]
+    def test_prepara_taxa_ocorrencia_pais_data_e_booleano(self):
+        taxon = preparar_taxa(tabela_taxa())[0]
         ocorrencia = preparar_ocorrencias(tabela_ocorrencias())[0]
+        paises = preparar_paises([ocorrencia])
 
-        self.assertIsNone(especie["iucn_category"])
+        self.assertEqual(taxon["taxon_key"], "SP1")
+        self.assertEqual(taxon["kingdom"], "Animalia")
+        self.assertIsNone(taxon["iucn_category"])
+        self.assertEqual(ocorrencia["gbif_key"], 10)
+        self.assertEqual(ocorrencia["taxon_key"], "SP1")
+        self.assertEqual(ocorrencia["country_code"], "BR")
+        self.assertEqual(ocorrencia["date_precision"], "DAY")
         self.assertIsNone(ocorrencia["locality"])
         self.assertTrue(ocorrencia["inside_basin"])
         self.assertEqual(ocorrencia["dataset_name"], "Dataset de teste")
-        self.assertIn("creativecommons.org/licenses/by/4.0", ocorrencia["license"])
-        self.assertEqual(ocorrencia["event_date"].year, 2020)
         self.assertIsNotNone(ocorrencia["event_date"].tzinfo)
+        self.assertEqual(paises, [{"iso_code": "BR", "name": "Brasil"}])
 
     def test_rejeita_referencia_orfa(self):
-        especies = preparar_especies(tabela_especies())
+        taxa = preparar_taxa(tabela_taxa())
         ocorrencias = preparar_ocorrencias(tabela_ocorrencias("SP2"))
 
-        with self.assertRaisesRegex(ValueError, "especies ausentes"):
-            validar_referencias(especies, ocorrencias)
+        with self.assertRaisesRegex(ValueError, "taxa ausentes"):
+            validar_referencias(taxa, ocorrencias)
 
-    def test_rejeita_coordenada_nula_antes_do_banco(self):
-        dados = tabela_ocorrencias()
-        dados.loc[0, "decimalLatitude"] = pd.NA
+    def test_aceita_coordenada_nula_e_rejeita_gbif_duplicada(self):
+        sem_coordenada = tabela_ocorrencias()
+        sem_coordenada.loc[0, "decimalLatitude"] = pd.NA
+        ocorrencia = preparar_ocorrencias(sem_coordenada)[0]
+        self.assertIsNone(ocorrencia["latitude"])
 
-        with self.assertRaisesRegex(ValueError, "decimalLatitude"):
-            preparar_ocorrencias(dados)
+        duplicadas = pd.concat(
+            [tabela_ocorrencias(), tabela_ocorrencias()], ignore_index=True
+        )
+        with self.assertRaisesRegex(ValueError, "gbif_key duplicada"):
+            preparar_ocorrencias(duplicadas)
 
-    def test_carrega_em_lotes_e_registra_auditoria(self):
+    def test_carrega_upserts_e_registra_importacao(self):
         conexao = ConexaoFalsa()
-        especies = preparar_especies(tabela_especies())
+        taxa = preparar_taxa(tabela_taxa())
         ocorrencias = preparar_ocorrencias(tabela_ocorrencias())
         with tempfile.TemporaryDirectory() as pasta:
-            caminho_especies = Path(pasta) / "species.csv"
+            caminho_taxa = Path(pasta) / "taxa.csv"
             caminho_ocorrencias = Path(pasta) / "occurrences.csv"
-            caminho_especies.write_text("species", encoding="utf-8")
+            caminho_taxa.write_text("taxa", encoding="utf-8")
             caminho_ocorrencias.write_text("occurrences", encoding="utf-8")
 
             resultado = carregar_registros(
                 conexao,
-                especies,
+                taxa,
                 ocorrencias,
                 "biodiversity",
                 1,
-                caminho_especies,
+                caminho_taxa,
                 caminho_ocorrencias,
             )
 
-        self.assertEqual(resultado, {"species": 1, "occurrences": 1})
-        self.assertEqual(len(conexao.cursores[1].lotes), 2)
-        self.assertIn("ON CONFLICT (species_key)", conexao.cursores[1].lotes[0][0])
-        self.assertIn("load_runs", conexao.cursores[1].executados[-1][0])
+        self.assertEqual(
+            resultado,
+            {"countries": 1, "taxa": 1, "occurrences": 1, "imports": 1},
+        )
+        lotes = conexao.cursores[1].lotes
+        self.assertEqual(len(lotes), 4)
+        self.assertIn("ON CONFLICT (iso_code)", lotes[0][0])
+        self.assertIn("ON CONFLICT (taxon_key)", lotes[1][0])
+        self.assertIn("ON CONFLICT (gbif_key)", lotes[2][0])
+        self.assertIn("data_imports", lotes[3][0])
+        self.assertEqual(lotes[3][1][0]["country_code"], "BR")
+        self.assertEqual(lotes[3][1][0]["taxon_key"], "SP1")
+        self.assertEqual(lotes[3][1][0]["status"], "COMPLETED")
+
+    def test_registra_uma_importacao_por_pais(self):
+        ocorrencias = preparar_ocorrencias(
+            pd.concat(
+                [
+                    tabela_ocorrencias(country_code="BR", gbif_key=10),
+                    tabela_ocorrencias(country_code="CH", gbif_key=11),
+                ],
+                ignore_index=True,
+            )
+        )
+        paises = preparar_paises(ocorrencias)
+
+        self.assertEqual(
+            paises,
+            [
+                {"iso_code": "BR", "name": "Brasil"},
+                {"iso_code": "CH", "name": "Suíça"},
+            ],
+        )
 
 
 class TestConsultasPostgreSQL(unittest.TestCase):
-    def test_catalogo_contem_consultas_principais(self):
+    def test_catalogo_usa_tabelas_e_colunas_novas(self):
         consultas = criar_consultas("biodiversity")
 
         self.assertEqual(
             set(consultas), {"resumo", "ranking", "anos", "meses", "origens", "especie"}
         )
+        self.assertIn("biodiversity.taxa", consultas["resumo"])
+        self.assertIn("taxon_key", consultas["ranking"])
+        self.assertIn("country_code", consultas["ranking"])
+        self.assertIn("country_code", consultas["anos"])
+        self.assertIn("gbif_key", consultas["especie"])
         self.assertIn("ILIKE %s", consultas["especie"])
 
     def test_consulta_especie_parametriza_termo_e_limite(self):
-        cursor = CursorFalso([{"gbif_id": 10}])
+        cursor = CursorFalso([{"gbif_key": 10}])
 
         resultado = executar_consulta(
             cursor, "especie", "biodiversity", limite=5, termo="alpha"
         )
 
-        self.assertEqual(resultado, [{"gbif_id": 10}])
+        self.assertEqual(resultado, [{"gbif_key": 10}])
         self.assertEqual(cursor.executados[0][1], ("%alpha%", 5))
 
 
@@ -202,25 +263,28 @@ class TestIntegracaoPostgreSQL(unittest.TestCase):
     def test_carga_real_em_transacao_reversivel(self):
         conexao = psycopg.connect(os.environ["TEST_DATABASE_URL"])
         try:
-            especies = preparar_especies(tabela_especies())
+            taxa = preparar_taxa(tabela_taxa())
             ocorrencias = preparar_ocorrencias(tabela_ocorrencias())
             with tempfile.TemporaryDirectory() as pasta:
-                caminho_especies = Path(pasta) / "species.csv"
+                caminho_taxa = Path(pasta) / "taxa.csv"
                 caminho_ocorrencias = Path(pasta) / "occurrences.csv"
-                caminho_especies.write_text("species", encoding="utf-8")
+                caminho_taxa.write_text("taxa", encoding="utf-8")
                 caminho_ocorrencias.write_text("occurrences", encoding="utf-8")
                 carregar_registros(
                     conexao,
-                    especies,
+                    taxa,
                     ocorrencias,
                     "biodiversity_test",
                     100,
-                    caminho_especies,
+                    caminho_taxa,
                     caminho_ocorrencias,
                 )
             verificacao = verificar_carga(conexao, "biodiversity_test")
             self.assertEqual(verificacao["orphans"], 0)
+            self.assertGreaterEqual(verificacao["countries"], 1)
+            self.assertGreaterEqual(verificacao["taxa"], 1)
             self.assertGreaterEqual(verificacao["occurrences"], 1)
+            self.assertGreaterEqual(verificacao["imports"], 1)
         finally:
             conexao.rollback()
             conexao.close()

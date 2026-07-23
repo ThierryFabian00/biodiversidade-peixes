@@ -71,7 +71,15 @@ def extrair_hierarquia(classificacao: dict[str, Any]) -> dict[str, Any]:
     hierarquia: dict[str, Any] = {}
     for taxon in classificacao.get("classification", []):
         rank = str(taxon.get("rank", "")).upper()
-        if rank in {"CLASS", "ORDER", "FAMILY", "GENUS", "SPECIES"}:
+        if rank in {
+            "KINGDOM",
+            "PHYLUM",
+            "CLASS",
+            "ORDER",
+            "FAMILY",
+            "GENUS",
+            "SPECIES",
+        }:
             hierarquia[rank] = taxon
     return hierarquia
 
@@ -135,10 +143,13 @@ def normalizar_registro(
         "isSynonym": sinonimo,
         "countryCode": str(registro.get("countryCode") or "").upper() or None,
         "fishGroup": identificar_grupo(classificacao),
+        "kingdom": hierarquia.get("KINGDOM", {}).get("name"),
+        "phylum": hierarquia.get("PHYLUM", {}).get("name"),
         "class": hierarquia.get("CLASS", {}).get("name"),
         "order": hierarquia.get("ORDER", {}).get("name"),
         "family": hierarquia.get("FAMILY", {}).get("name"),
         "genus": hierarquia.get("GENUS", {}).get("name"),
+        "species": especie_hierarquia.get("name") or nome_canonico,
         "iucnCategory": classificacao.get("iucnRedListCategoryCode"),
         "decimalLatitude": registro.get("decimalLatitude"),
         "decimalLongitude": registro.get("decimalLongitude"),
@@ -216,11 +227,14 @@ def criar_tabela_especies(
         "acceptedScientificName",
         "canonicalName",
         "taxonomicStatus",
+        "kingdom",
+        "phylum",
         "fishGroup",
         "class",
         "order",
         "family",
         "genus",
+        "species",
         "iucnCategory",
     ]
     for _, grupo in ocorrencias.groupby("speciesKey", sort=True):

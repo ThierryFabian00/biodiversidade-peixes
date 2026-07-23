@@ -1,75 +1,120 @@
-# Integração PostgreSQL
+# Integração PostgreSQL multípaís
 
 ## Visão geral
 
-A Etapa 7 transforma as tabelas CSV processadas em um modelo relacional. A implementação usa Psycopg 3, transações, chaves primárias e estrangeiras, restrições de domínio, índices, `UPSERT`, auditoria de cargas e views analíticas.
+A Etapa 5 usa um modelo relacional normalizado para armazenar vários países e
+táxons sem repetir a taxonomia em cada ocorrência. A implementação usa Psycopg
+3, transações, chaves primárias e estrangeiras, índices, `UPSERT` e auditoria
+de cada importação.
 
 ```mermaid
 erDiagram
-    SPECIES ||--o{ OCCURRENCES : possui
-    SPECIES {
-        text species_key PK
-        text canonical_name
+    COUNTRIES ||--o{ OCCURRENCES : possui
+    TAXA ||--o{ OCCURRENCES : identifica
+    COUNTRIES ||--o{ DATA_IMPORTS : registra
+    TAXA o|--o{ DATA_IMPORTS : delimita
+
+    COUNTRIES {
+        bigint id PK
+        char iso_code UK
+        text name
+    }
+    TAXA {
+        text taxon_key PK
+        text scientific_name
+        text accepted_scientific_name
+        text taxonomic_status
+        text class_name
+        text order_name
         text family
-        text origin_status
-        int source_occurrence_count
+        text genus
+        text species
     }
     OCCURRENCES {
-        bigint gbif_id PK
-        text species_key FK
+        bigint gbif_key PK
+        text taxon_key FK
+        char country_code FK
+        float latitude
+        float longitude
         timestamptz event_date
-        float decimal_latitude
-        float decimal_longitude
-        text basis_of_record
+        text event_date_original
+        text date_precision
+        smallint year
+        smallint month
+        text dataset_key
     }
-    LOAD_RUNS {
-        bigint load_id PK
-        timestamptz loaded_at
-        char source_checksum
-        int species_rows
-        int occurrence_rows
+    DATA_IMPORTS {
+        bigint id PK
+        char country_code FK
+        text taxon_key FK
+        timestamptz started_at
+        timestamptz finished_at
+        int records_received
+        int records_saved
+        text status
     }
 ```
+
+O catálogo `taxa` mantém também campos analíticos já usados pelo dashboard,
+como nome canônico, origem e categoria IUCN. `data_imports.taxon_key` fica
+nulo quando uma única execução contém várias espécies.
+
+## Criação e migração
+
+O arquivo
+[`sql/postgresql_multicountry.sql`](../sql/postgresql_multicountry.sql) é a
+fonte do schema. O carregador substitui o marcador `__SCHEMA__` somente depois
+de validar o nome configurado.
+
+O script é idempotente. Em um banco legado ele:
+
+1. renomeia `species` para `taxa`;
+2. renomeia chaves e campos de `occurrences`;
+3. adiciona `country_code` e usa `BR` para registros históricos;
+4. cria `countries` e `data_imports`;
+5. recria índices e views.
+
+Faça backup antes de aplicar qualquer migração em um banco compartilhado.
 
 ## Configuração
 
-O projeto lê `DATABASE_URL` e `DB_SCHEMA` do arquivo `.env`. Esse arquivo é ignorado pelo Git e não deve ser publicado.
+O projeto lê `DATABASE_URL` e `DB_SCHEMA` de `.env`. Para um PostgreSQL
+local:
 
 ```powershell
 Copy-Item .env.example .env
-```
-
-Substitua `change-me` por uma senha local tanto em `POSTGRES_PASSWORD` quanto em `DATABASE_URL`.
-
-Quando Docker estiver disponível, o serviço definido em `compose.yaml` pode iniciar o PostgreSQL:
-
-```powershell
 docker compose up -d db
 docker compose ps
 ```
 
-Também é possível usar uma instalação existente e ajustar apenas `DATABASE_URL`. O schema padrão é `biodiversity`.
+Ajuste a senha e a URL no arquivo local. O schema padrão é `biodiversity`.
 
 ## Validação e carga
 
-O `dry-run` lê os CSVs, valida colunas obrigatórias, tipos, coordenadas e referências entre ocorrências e espécies sem abrir uma conexão:
+O `dry-run` valida países, táxons, coordenadas, chaves GBIF duplicadas e
+referências sem abrir conexão:
 
 ```powershell
 python -m src.load --dry-run
 ```
 
-A carga real cria a estrutura e processa os dados em lotes de 500:
+A carga cria ou migra a estrutura e executa os upserts em lotes:
 
 ```powershell
 python -m src.load
 python -m src.load --tamanho-lote 1000
+
+python -m src.load `
+  --especies data/processed/especies_peixes_ch.csv `
+  --ocorrencias data/processed/ocorrencias_peixes_ch.csv
 ```
 
-Espécies usam `species_key` como chave primária e ocorrências usam `gbif_id`. Em caso de conflito, os campos são atualizados. Cada execução concluída adiciona uma linha a `load_runs` com caminhos, checksum SHA-256 e quantidades processadas.
+`countries.iso_code`, `taxa.taxon_key` e `occurrences.gbif_key` impedem
+duplicidades. Cada execução concluída acrescenta uma linha em `data_imports`
+por país, com horário inicial/final, checksum, arquivos e contagens recebidas e
+salvas.
 
 ## Consultas
-
-O módulo de consulta retorna JSON e nunca imprime a URL de conexão:
 
 ```powershell
 python -m src.query_db --consulta resumo
@@ -80,40 +125,27 @@ python -m src.query_db --consulta origens
 python -m src.query_db --consulta especie --termo "Astyanax lacustris" --limite 20
 ```
 
-Consultas SQL equivalentes estão em `sql/analysis_queries.sql`. As views disponíveis são:
-
-- `biodiversity.vw_species_ranking`;
-- `biodiversity.vw_occurrences_by_year`;
-- `biodiversity.vw_occurrence_details`.
+Consultas equivalentes estão em
+[`sql/analysis_queries.sql`](../sql/analysis_queries.sql). As views mantidas
+são `vw_species_ranking`, `vw_occurrences_by_year` e
+`vw_occurrence_details`.
 
 ## Integridade e desempenho
 
-- A chave estrangeira impede ocorrências sem espécie correspondente.
-- Latitude, longitude, ano, mês, origem e contagens possuem restrições `CHECK`.
-- Exclusão de espécie referenciada é bloqueada por `ON DELETE RESTRICT`.
-- Índices atendem consultas por espécie, ano/mês, estado, tipo de registro e coordenadas.
-- Datas são armazenadas como `TIMESTAMPTZ`; valores ausentes são convertidos para `NULL`.
-- A carga inteira usa uma transação: uma falha não deixa apenas parte dos dados atualizada.
+- ocorrências só aceitam país e táxon existentes;
+- `gbif_key` é único e duplicidades no mesmo arquivo também são rejeitadas;
+- latitude, longitude, ano, mês, origem e contagens têm restrições;
+- índices cobrem país, táxon, ano e a combinação dos três;
+- inserções repetidas atualizam países, táxons e ocorrências;
+- a carga roda dentro da transação administrada pelo Psycopg.
 
 ## Teste de integração
 
-Os testes unitários não exigem banco. Para executar também o teste reversível contra um servidor real, defina uma URL separada:
+Os testes unitários não exigem banco. Para executar o teste reversível real:
 
 ```powershell
-$env:TEST_DATABASE_URL="postgresql://usuario:senha@localhost:5432/biodiversity_test"
+$env:TEST_DATABASE_URL="postgresql://usuario:senha@localhost:5432/biodiversidade_peixes_test"
 python -m unittest tests.test_load -v
 ```
 
-O teste cria objetos no schema `biodiversity_test` dentro de uma transação e executa `rollback` ao final.
-
-## Validação realizada
-
-Em 15 de julho de 2026, a carga foi validada em PostgreSQL 18 no banco `biodiversidade_peixes`:
-
-- 356 espécies carregadas;
-- 3.792 ocorrências carregadas;
-- três tabelas e três views criadas;
-- zero IDs GBIF duplicados;
-- zero referências órfãs;
-- segunda execução concluída sem aumentar as contagens, confirmando a idempotência;
-- teste de integração real aprovado com rollback.
+O teste usa o schema `biodiversity_test` e executa `rollback` ao final.

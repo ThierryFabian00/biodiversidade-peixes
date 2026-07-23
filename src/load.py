@@ -1,34 +1,35 @@
 import argparse
 import hashlib
 import logging
+import re
 from collections.abc import Iterable, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import psycopg
 
-from src.config import (
-    ARQUIVO_ENV,
-    TAMANHO_LOTE_PADRAO,
-)
-from src.config import (
-    SCHEMA_PADRAO as SCHEMA_PADRAO,
-)
+from src.config import ARQUIVO_ENV, PAIS_PADRAO, TAMANHO_LOTE_PADRAO
+from src.config import SCHEMA_PADRAO as SCHEMA_PADRAO
 from src.database import ConfiguracaoBanco, validar_schema
 from src.logging_config import configurar_logging
+from src.services.country_service import normalizar_codigo_pais, obter_pais
 from src.transform_fish import ARQUIVO_ESPECIES, ARQUIVO_OCORRENCIAS
 
 LOGGER = logging.getLogger(__name__)
+ARQUIVO_SCHEMA = (
+    Path(__file__).resolve().parent.parent / "sql" / "postgresql_multicountry.sql"
+)
 
-COLUNAS_ESPECIES = {
+COLUNAS_TAXA = {
     "speciesKey",
     "acceptedScientificName",
     "canonicalName",
     "occurrenceCount",
     "originStatus",
 }
+COLUNAS_ESPECIES = COLUNAS_TAXA
 COLUNAS_OCORRENCIAS = {
     "gbifID",
     "speciesKey",
@@ -37,29 +38,43 @@ COLUNAS_OCORRENCIAS = {
     "insideBasin",
 }
 
-SQL_UPSERT_ESPECIES = """
-INSERT INTO {schema}.species (
-    species_key, accepted_scientific_name, canonical_name, fish_group,
-    class_name, order_name, family, genus, iucn_category,
-    source_occurrence_count, first_year, last_year, origin_status,
-    origin_evidence, origin_source, origin_source_url, origin_scope,
-    taxonomic_issue_count
+SQL_UPSERT_PAISES = """
+INSERT INTO {schema}.countries (iso_code, name)
+VALUES (%(iso_code)s, %(name)s)
+ON CONFLICT (iso_code) DO UPDATE SET
+    name = EXCLUDED.name,
+    updated_at = CURRENT_TIMESTAMP
+"""
+
+SQL_UPSERT_TAXA = """
+INSERT INTO {schema}.taxa (
+    taxon_key, scientific_name, accepted_scientific_name, taxonomic_status,
+    kingdom, phylum, class_name, order_name, family, genus, species,
+    canonical_name, fish_group, iucn_category, source_occurrence_count,
+    first_year, last_year, origin_status, origin_evidence, origin_source,
+    origin_source_url, origin_scope, taxonomic_issue_count
 ) VALUES (
-    %(species_key)s, %(accepted_scientific_name)s, %(canonical_name)s,
-    %(fish_group)s, %(class_name)s, %(order_name)s, %(family)s, %(genus)s,
-    %(iucn_category)s, %(source_occurrence_count)s, %(first_year)s,
-    %(last_year)s, %(origin_status)s, %(origin_evidence)s,
+    %(taxon_key)s, %(scientific_name)s, %(accepted_scientific_name)s,
+    %(taxonomic_status)s, %(kingdom)s, %(phylum)s, %(class_name)s,
+    %(order_name)s, %(family)s, %(genus)s, %(species)s, %(canonical_name)s,
+    %(fish_group)s, %(iucn_category)s, %(source_occurrence_count)s,
+    %(first_year)s, %(last_year)s, %(origin_status)s, %(origin_evidence)s,
     %(origin_source)s, %(origin_source_url)s, %(origin_scope)s,
     %(taxonomic_issue_count)s
 )
-ON CONFLICT (species_key) DO UPDATE SET
+ON CONFLICT (taxon_key) DO UPDATE SET
+    scientific_name = EXCLUDED.scientific_name,
     accepted_scientific_name = EXCLUDED.accepted_scientific_name,
-    canonical_name = EXCLUDED.canonical_name,
-    fish_group = EXCLUDED.fish_group,
+    taxonomic_status = EXCLUDED.taxonomic_status,
+    kingdom = EXCLUDED.kingdom,
+    phylum = EXCLUDED.phylum,
     class_name = EXCLUDED.class_name,
     order_name = EXCLUDED.order_name,
     family = EXCLUDED.family,
     genus = EXCLUDED.genus,
+    species = EXCLUDED.species,
+    canonical_name = EXCLUDED.canonical_name,
+    fish_group = EXCLUDED.fish_group,
     iucn_category = EXCLUDED.iucn_category,
     source_occurrence_count = EXCLUDED.source_occurrence_count,
     first_year = EXCLUDED.first_year,
@@ -75,34 +90,34 @@ ON CONFLICT (species_key) DO UPDATE SET
 
 SQL_UPSERT_OCORRENCIAS = """
 INSERT INTO {schema}.occurrences (
-    gbif_id, species_key, scientific_name, taxonomic_status,
-    decimal_latitude, decimal_longitude, event_date, event_date_original,
-    event_year, event_month, state_province, locality, basis_of_record,
-    dataset_key, dataset_name, publishing_org_key, institution_code,
-    license, references_url, occurrence_status, establishment_means,
-    degree_of_establishment, taxonomic_issues, occurrence_issues,
-    inside_basin
+    gbif_key, taxon_key, country_code, scientific_name, taxonomic_status,
+    latitude, longitude, event_date, event_date_original, date_precision,
+    year, month, state_province, locality, basis_of_record, dataset_key,
+    dataset_name, publishing_org_key, institution_code, license,
+    references_url, occurrence_status, establishment_means,
+    degree_of_establishment, taxonomic_issues, occurrence_issues, inside_basin
 ) VALUES (
-    %(gbif_id)s, %(species_key)s, %(scientific_name)s,
-    %(taxonomic_status)s, %(decimal_latitude)s, %(decimal_longitude)s,
-    %(event_date)s, %(event_date_original)s, %(event_year)s,
-    %(event_month)s, %(state_province)s, %(locality)s,
-    %(basis_of_record)s, %(dataset_key)s, %(dataset_name)s,
-    %(publishing_org_key)s, %(institution_code)s, %(license)s,
-    %(references_url)s, %(occurrence_status)s,
+    %(gbif_key)s, %(taxon_key)s, %(country_code)s, %(scientific_name)s,
+    %(taxonomic_status)s, %(latitude)s, %(longitude)s, %(event_date)s,
+    %(event_date_original)s, %(date_precision)s, %(year)s, %(month)s,
+    %(state_province)s, %(locality)s, %(basis_of_record)s, %(dataset_key)s,
+    %(dataset_name)s, %(publishing_org_key)s, %(institution_code)s,
+    %(license)s, %(references_url)s, %(occurrence_status)s,
     %(establishment_means)s, %(degree_of_establishment)s,
     %(taxonomic_issues)s, %(occurrence_issues)s, %(inside_basin)s
 )
-ON CONFLICT (gbif_id) DO UPDATE SET
-    species_key = EXCLUDED.species_key,
+ON CONFLICT (gbif_key) DO UPDATE SET
+    taxon_key = EXCLUDED.taxon_key,
+    country_code = EXCLUDED.country_code,
     scientific_name = EXCLUDED.scientific_name,
     taxonomic_status = EXCLUDED.taxonomic_status,
-    decimal_latitude = EXCLUDED.decimal_latitude,
-    decimal_longitude = EXCLUDED.decimal_longitude,
+    latitude = EXCLUDED.latitude,
+    longitude = EXCLUDED.longitude,
     event_date = EXCLUDED.event_date,
     event_date_original = EXCLUDED.event_date_original,
-    event_year = EXCLUDED.event_year,
-    event_month = EXCLUDED.event_month,
+    date_precision = EXCLUDED.date_precision,
+    year = EXCLUDED.year,
+    month = EXCLUDED.month,
     state_province = EXCLUDED.state_province,
     locality = EXCLUDED.locality,
     basis_of_record = EXCLUDED.basis_of_record,
@@ -121,143 +136,27 @@ ON CONFLICT (gbif_id) DO UPDATE SET
     updated_at = CURRENT_TIMESTAMP
 """
 
+SQL_REGISTRAR_IMPORTACOES = """
+INSERT INTO {schema}.data_imports (
+    country_code, taxon_key, started_at, finished_at, records_received,
+    records_saved, status, taxa_file, occurrences_file, source_checksum
+) VALUES (
+    %(country_code)s, %(taxon_key)s, %(started_at)s, %(finished_at)s,
+    %(records_received)s, %(records_saved)s, %(status)s, %(taxa_file)s,
+    %(occurrences_file)s, %(source_checksum)s
+)
+"""
+
 
 def criar_comandos_schema(schema: str) -> list[str]:
     schema = validar_schema(schema)
-    return [
-        f"CREATE SCHEMA IF NOT EXISTS {schema}",
-        f"""
-        CREATE TABLE IF NOT EXISTS {schema}.species (
-            species_key TEXT PRIMARY KEY,
-            accepted_scientific_name TEXT NOT NULL,
-            canonical_name TEXT NOT NULL,
-            fish_group TEXT,
-            class_name TEXT,
-            order_name TEXT,
-            family TEXT,
-            genus TEXT,
-            iucn_category TEXT,
-            source_occurrence_count INTEGER NOT NULL DEFAULT 0
-                CHECK (source_occurrence_count >= 0),
-            first_year SMALLINT,
-            last_year SMALLINT,
-            origin_status TEXT NOT NULL DEFAULT 'UNKNOWN'
-                CHECK (origin_status IN ('NATIVE', 'INTRODUCED', 'CONFLICTING', 'UNKNOWN')),
-            origin_evidence TEXT,
-            origin_source TEXT,
-            origin_source_url TEXT,
-            origin_scope TEXT,
-            taxonomic_issue_count INTEGER NOT NULL DEFAULT 0
-                CHECK (taxonomic_issue_count >= 0),
-            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            CHECK (first_year IS NULL OR first_year BETWEEN 1600 AND 2200),
-            CHECK (last_year IS NULL OR last_year BETWEEN 1600 AND 2200),
-            CHECK (first_year IS NULL OR last_year IS NULL OR first_year <= last_year)
-        )
-        """,
-        f"""
-        CREATE TABLE IF NOT EXISTS {schema}.occurrences (
-            gbif_id BIGINT PRIMARY KEY,
-            species_key TEXT NOT NULL REFERENCES {schema}.species(species_key)
-                ON UPDATE CASCADE ON DELETE RESTRICT,
-            scientific_name TEXT,
-            taxonomic_status TEXT,
-            decimal_latitude DOUBLE PRECISION NOT NULL
-                CHECK (decimal_latitude BETWEEN -90 AND 90),
-            decimal_longitude DOUBLE PRECISION NOT NULL
-                CHECK (decimal_longitude BETWEEN -180 AND 180),
-            event_date TIMESTAMPTZ,
-            event_date_original TEXT,
-            event_year SMALLINT CHECK (event_year IS NULL OR event_year BETWEEN 1600 AND 2200),
-            event_month SMALLINT CHECK (event_month IS NULL OR event_month BETWEEN 1 AND 12),
-            state_province TEXT,
-            locality TEXT,
-            basis_of_record TEXT,
-            dataset_key TEXT,
-            dataset_name TEXT,
-            publishing_org_key TEXT,
-            institution_code TEXT,
-            license TEXT,
-            references_url TEXT,
-            occurrence_status TEXT,
-            establishment_means TEXT,
-            degree_of_establishment TEXT,
-            taxonomic_issues TEXT,
-            occurrence_issues TEXT,
-            inside_basin BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """,
-        f"""
-        ALTER TABLE {schema}.occurrences
-            ADD COLUMN IF NOT EXISTS dataset_name TEXT,
-            ADD COLUMN IF NOT EXISTS publishing_org_key TEXT,
-            ADD COLUMN IF NOT EXISTS institution_code TEXT,
-            ADD COLUMN IF NOT EXISTS license TEXT,
-            ADD COLUMN IF NOT EXISTS references_url TEXT
-        """,
-        f"""
-        CREATE TABLE IF NOT EXISTS {schema}.load_runs (
-            load_id BIGSERIAL PRIMARY KEY,
-            loaded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            species_file TEXT NOT NULL,
-            occurrences_file TEXT NOT NULL,
-            source_checksum CHAR(64) NOT NULL,
-            species_rows INTEGER NOT NULL CHECK (species_rows >= 0),
-            occurrence_rows INTEGER NOT NULL CHECK (occurrence_rows >= 0),
-            status TEXT NOT NULL DEFAULT 'COMPLETED'
-                CHECK (status IN ('COMPLETED', 'FAILED'))
-        )
-        """,
-        f"CREATE INDEX IF NOT EXISTS idx_occurrences_species ON {schema}.occurrences(species_key)",
-        f"CREATE INDEX IF NOT EXISTS idx_occurrences_year_month ON {schema}.occurrences(event_year, event_month)",
-        f"CREATE INDEX IF NOT EXISTS idx_occurrences_state ON {schema}.occurrences(state_province)",
-        f"CREATE INDEX IF NOT EXISTS idx_occurrences_basis ON {schema}.occurrences(basis_of_record)",
-        f"CREATE INDEX IF NOT EXISTS idx_occurrences_coordinates ON {schema}.occurrences(decimal_longitude, decimal_latitude)",
-        f"""
-        CREATE OR REPLACE VIEW {schema}.vw_species_ranking AS
-        SELECT
-            s.species_key,
-            s.canonical_name,
-            s.origin_status,
-            COUNT(o.gbif_id)::BIGINT AS occurrence_count,
-            MIN(o.event_year) AS first_year,
-            MAX(o.event_year) AS last_year
-        FROM {schema}.species s
-        LEFT JOIN {schema}.occurrences o ON o.species_key = s.species_key
-        GROUP BY s.species_key, s.canonical_name, s.origin_status
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {schema}.vw_occurrences_by_year AS
-        SELECT event_year, COUNT(*)::BIGINT AS occurrence_count
-        FROM {schema}.occurrences
-        WHERE event_year IS NOT NULL
-        GROUP BY event_year
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {schema}.vw_occurrence_details AS
-        SELECT
-            o.gbif_id,
-            o.species_key,
-            s.canonical_name,
-            s.family,
-            s.origin_status,
-            o.event_date,
-            o.event_year,
-            o.event_month,
-            o.decimal_latitude,
-            o.decimal_longitude,
-            o.state_province,
-            o.locality,
-            o.basis_of_record,
-            o.taxonomic_issues,
-            o.occurrence_issues
-        FROM {schema}.occurrences o
-        JOIN {schema}.species s ON s.species_key = o.species_key
-        """,
+    conteudo = ARQUIVO_SCHEMA.read_text(encoding="utf-8")
+    comandos = [
+        trecho.strip()
+        for trecho in conteudo.split("-- statement")
+        if trecho.strip() and not trecho.lstrip().startswith("-- Modelo")
     ]
+    return [comando.replace("__SCHEMA__", schema) for comando in comandos]
 
 
 def _limpar_valor(valor: Any) -> Any:
@@ -273,6 +172,14 @@ def _inteiro(valor: Any) -> int | None:
     return int(valor) if valor is not None else None
 
 
+def _numero(valor: Any) -> float | None:
+    valor = _limpar_valor(valor)
+    if valor is None:
+        return None
+    numero = float(valor)
+    return None if pd.isna(numero) else numero
+
+
 def _texto(valor: Any) -> str | None:
     valor = _limpar_valor(valor)
     return str(valor) if valor is not None else None
@@ -282,7 +189,7 @@ def _texto_obrigatorio(valor: Any, campo: str) -> str:
     texto = _texto(valor)
     if texto is None or not texto.strip():
         raise ValueError(f"Valor obrigatorio ausente: {campo}")
-    return texto
+    return texto.strip()
 
 
 def _numero_obrigatorio(valor: Any, campo: str) -> float:
@@ -298,9 +205,10 @@ def _numero_obrigatorio(valor: Any, campo: str) -> float:
 def _booleano(valor: Any) -> bool:
     valor = _limpar_valor(valor)
     if isinstance(valor, str):
-        if valor.strip().casefold() in {"true", "1", "yes", "sim"}:
+        normalizado = valor.strip().casefold()
+        if normalizado in {"true", "1", "yes", "sim"}:
             return True
-        if valor.strip().casefold() in {"false", "0", "no", "nao"}:
+        if normalizado in {"false", "0", "no", "nao"}:
             return False
         raise ValueError(f"Valor booleano invalido: {valor}")
     return bool(valor)
@@ -316,6 +224,23 @@ def _data_utc(valor: Any) -> datetime | None:
     return data.to_pydatetime()
 
 
+def _precisao_data(linha: dict[str, Any]) -> str | None:
+    explicita = _texto(linha.get("datePrecision"))
+    if explicita:
+        return explicita.strip().upper()
+    original = _texto(linha.get("eventDateOriginal"))
+    if not original:
+        return None
+    original = original.strip()
+    if re.fullmatch(r"\d{4}", original):
+        return "YEAR"
+    if re.fullmatch(r"\d{4}-\d{2}", original):
+        return "MONTH"
+    if re.match(r"^\d{4}-\d{2}-\d{2}", original):
+        return "DAY"
+    return "UNKNOWN"
+
+
 def validar_tabela(dados: pd.DataFrame, colunas: set[str], nome: str) -> None:
     ausentes = colunas.difference(dados.columns)
     if ausentes:
@@ -324,38 +249,46 @@ def validar_tabela(dados: pd.DataFrame, colunas: set[str], nome: str) -> None:
         )
 
 
-def preparar_especies(dados: pd.DataFrame) -> list[dict[str, Any]]:
-    validar_tabela(dados, COLUNAS_ESPECIES, "especies")
+def preparar_taxa(dados: pd.DataFrame) -> list[dict[str, Any]]:
+    validar_tabela(dados, COLUNAS_TAXA, "taxa")
     registros: list[dict[str, Any]] = []
     for linha in dados.to_dict("records"):
+        nome_aceito = _texto_obrigatorio(
+            linha.get("acceptedScientificName"), "acceptedScientificName"
+        )
+        nome_canonico = _texto_obrigatorio(linha.get("canonicalName"), "canonicalName")
         registros.append(
             {
-                "species_key": _texto_obrigatorio(linha["speciesKey"], "speciesKey"),
-                "accepted_scientific_name": _texto_obrigatorio(
-                    linha.get("acceptedScientificName"), "acceptedScientificName"
-                ),
-                "canonical_name": _texto_obrigatorio(
-                    linha.get("canonicalName"), "canonicalName"
-                ),
-                "fish_group": _limpar_valor(linha.get("fishGroup")),
-                "class_name": _limpar_valor(linha.get("class")),
-                "order_name": _limpar_valor(linha.get("order")),
-                "family": _limpar_valor(linha.get("family")),
-                "genus": _limpar_valor(linha.get("genus")),
-                "iucn_category": _limpar_valor(linha.get("iucnCategory")),
+                "taxon_key": _texto_obrigatorio(linha["speciesKey"], "speciesKey"),
+                "scientific_name": _texto(linha.get("scientificName")) or nome_aceito,
+                "accepted_scientific_name": nome_aceito,
+                "taxonomic_status": _texto(linha.get("taxonomicStatus")),
+                "kingdom": _texto(linha.get("kingdom")),
+                "phylum": _texto(linha.get("phylum")),
+                "class_name": _texto(linha.get("class")),
+                "order_name": _texto(linha.get("order")),
+                "family": _texto(linha.get("family")),
+                "genus": _texto(linha.get("genus")),
+                "species": _texto(linha.get("species")) or nome_canonico,
+                "canonical_name": nome_canonico,
+                "fish_group": _texto(linha.get("fishGroup")),
+                "iucn_category": _texto(linha.get("iucnCategory")),
                 "source_occurrence_count": _inteiro(linha.get("occurrenceCount")) or 0,
                 "first_year": _inteiro(linha.get("firstYear")),
                 "last_year": _inteiro(linha.get("lastYear")),
-                "origin_status": _limpar_valor(linha.get("originStatus")) or "UNKNOWN",
-                "origin_evidence": _limpar_valor(linha.get("originEvidence")),
-                "origin_source": _limpar_valor(linha.get("originSource")),
-                "origin_source_url": _limpar_valor(linha.get("originSourceUrl")),
-                "origin_scope": _limpar_valor(linha.get("originScope")),
+                "origin_status": _texto(linha.get("originStatus")) or "UNKNOWN",
+                "origin_evidence": _texto(linha.get("originEvidence")),
+                "origin_source": _texto(linha.get("originSource")),
+                "origin_source_url": _texto(linha.get("originSourceUrl")),
+                "origin_scope": _texto(linha.get("originScope")),
                 "taxonomic_issue_count": _inteiro(linha.get("taxonomicIssueCount"))
                 or 0,
             }
         )
     return registros
+
+
+preparar_especies = preparar_taxa
 
 
 def preparar_ocorrencias(dados: pd.DataFrame) -> list[dict[str, Any]]:
@@ -364,50 +297,68 @@ def preparar_ocorrencias(dados: pd.DataFrame) -> list[dict[str, Any]]:
     for linha in dados.to_dict("records"):
         registros.append(
             {
-                "gbif_id": int(_numero_obrigatorio(linha["gbifID"], "gbifID")),
-                "species_key": _texto_obrigatorio(linha["speciesKey"], "speciesKey"),
-                "scientific_name": _limpar_valor(linha.get("scientificName")),
-                "taxonomic_status": _limpar_valor(linha.get("taxonomicStatus")),
-                "decimal_latitude": _numero_obrigatorio(
-                    linha["decimalLatitude"], "decimalLatitude"
+                "gbif_key": int(_numero_obrigatorio(linha["gbifID"], "gbifID")),
+                "taxon_key": _texto_obrigatorio(linha["speciesKey"], "speciesKey"),
+                "country_code": normalizar_codigo_pais(
+                    _texto(linha.get("countryCode")) or PAIS_PADRAO
                 ),
-                "decimal_longitude": _numero_obrigatorio(
-                    linha["decimalLongitude"], "decimalLongitude"
-                ),
+                "scientific_name": _texto(linha.get("scientificName")),
+                "taxonomic_status": _texto(linha.get("taxonomicStatus")),
+                "latitude": _numero(linha["decimalLatitude"]),
+                "longitude": _numero(linha["decimalLongitude"]),
                 "event_date": _data_utc(linha.get("eventDate")),
-                "event_date_original": _limpar_valor(linha.get("eventDateOriginal")),
-                "event_year": _inteiro(linha.get("year")),
-                "event_month": _inteiro(linha.get("month")),
-                "state_province": _limpar_valor(linha.get("stateProvince")),
-                "locality": _limpar_valor(linha.get("locality")),
-                "basis_of_record": _limpar_valor(linha.get("basisOfRecord")),
-                "dataset_key": _limpar_valor(linha.get("datasetKey")),
-                "dataset_name": _limpar_valor(linha.get("datasetName")),
-                "publishing_org_key": _limpar_valor(linha.get("publishingOrgKey")),
-                "institution_code": _limpar_valor(linha.get("institutionCode")),
-                "license": _limpar_valor(linha.get("license")),
-                "references_url": _limpar_valor(linha.get("references")),
-                "occurrence_status": _limpar_valor(linha.get("occurrenceStatus")),
-                "establishment_means": _limpar_valor(linha.get("establishmentMeans")),
+                "event_date_original": _texto(linha.get("eventDateOriginal")),
+                "date_precision": _precisao_data(linha),
+                "year": _inteiro(linha.get("year")),
+                "month": _inteiro(linha.get("month")),
+                "state_province": _texto(linha.get("stateProvince")),
+                "locality": _texto(linha.get("locality")),
+                "basis_of_record": _texto(linha.get("basisOfRecord")),
+                "dataset_key": _texto(linha.get("datasetKey")),
+                "dataset_name": _texto(linha.get("datasetName")),
+                "publishing_org_key": _texto(linha.get("publishingOrgKey")),
+                "institution_code": _texto(linha.get("institutionCode")),
+                "license": _texto(linha.get("license")),
+                "references_url": _texto(linha.get("references")),
+                "occurrence_status": _texto(linha.get("occurrenceStatus")),
+                "establishment_means": _texto(linha.get("establishmentMeans")),
                 "degree_of_establishment": _texto(linha.get("degreeOfEstablishment")),
-                "taxonomic_issues": _limpar_valor(linha.get("taxonomicIssues")),
-                "occurrence_issues": _limpar_valor(linha.get("occurrenceIssues")),
+                "taxonomic_issues": _texto(linha.get("taxonomicIssues")),
+                "occurrence_issues": _texto(linha.get("occurrenceIssues")),
                 "inside_basin": _booleano(linha["insideBasin"]),
             }
         )
+    gbif_keys = [registro["gbif_key"] for registro in registros]
+    duplicadas = sorted(chave for chave in set(gbif_keys) if gbif_keys.count(chave) > 1)
+    if duplicadas:
+        amostra = ", ".join(str(chave) for chave in duplicadas[:5])
+        raise ValueError(f"gbif_key duplicada na importacao: {amostra}")
     return registros
 
 
+def preparar_paises(
+    ocorrencias: Sequence[dict[str, Any]],
+) -> list[dict[str, str]]:
+    codigos = sorted({registro["country_code"] for registro in ocorrencias})
+    return [
+        {
+            "iso_code": pais.codigo_iso,
+            "name": pais.nome,
+        }
+        for pais in (obter_pais(codigo) for codigo in codigos)
+    ]
+
+
 def validar_referencias(
-    especies: Sequence[dict[str, Any]],
+    taxa: Sequence[dict[str, Any]],
     ocorrencias: Sequence[dict[str, Any]],
 ) -> None:
-    chaves_especies = {registro["species_key"] for registro in especies}
-    chaves_ocorrencias = {registro["species_key"] for registro in ocorrencias}
-    orfas = sorted(chaves_ocorrencias.difference(chaves_especies))
+    chaves_taxa = {registro["taxon_key"] for registro in taxa}
+    chaves_ocorrencias = {registro["taxon_key"] for registro in ocorrencias}
+    orfas = sorted(chaves_ocorrencias.difference(chaves_taxa))
     if orfas:
         amostra = ", ".join(orfas[:5])
-        raise ValueError(f"Ocorrencias referenciam especies ausentes: {amostra}")
+        raise ValueError(f"Ocorrencias referenciam taxa ausentes: {amostra}")
 
 
 def calcular_checksum(caminhos: Iterable[Path]) -> str:
@@ -434,73 +385,110 @@ def criar_estrutura(conexao: Any, schema: str) -> None:
             cursor.execute(comando)
 
 
+def _registros_importacao(
+    ocorrencias: Sequence[dict[str, Any]],
+    inicio: datetime,
+    caminho_taxa: Path,
+    caminho_ocorrencias: Path,
+) -> list[dict[str, Any]]:
+    checksum = calcular_checksum([caminho_taxa, caminho_ocorrencias])
+    fim = datetime.now(timezone.utc)
+    importacoes = []
+    for pais in preparar_paises(ocorrencias):
+        registros_pais = [
+            registro
+            for registro in ocorrencias
+            if registro["country_code"] == pais["iso_code"]
+        ]
+        chaves = {registro["taxon_key"] for registro in registros_pais}
+        importacoes.append(
+            {
+                "country_code": pais["iso_code"],
+                "taxon_key": next(iter(chaves)) if len(chaves) == 1 else None,
+                "started_at": inicio,
+                "finished_at": fim,
+                "records_received": len(registros_pais),
+                "records_saved": len(registros_pais),
+                "status": "COMPLETED",
+                "taxa_file": str(caminho_taxa),
+                "occurrences_file": str(caminho_ocorrencias),
+                "source_checksum": checksum,
+            }
+        )
+    return importacoes
+
+
 def carregar_registros(
     conexao: Any,
-    especies: Sequence[dict[str, Any]],
+    taxa: Sequence[dict[str, Any]],
     ocorrencias: Sequence[dict[str, Any]],
     schema: str,
     tamanho_lote: int,
-    caminho_especies: Path,
+    caminho_taxa: Path,
     caminho_ocorrencias: Path,
 ) -> dict[str, int]:
     schema = validar_schema(schema)
-    validar_referencias(especies, ocorrencias)
+    validar_referencias(taxa, ocorrencias)
+    inicio = datetime.now(timezone.utc)
     criar_estrutura(conexao, schema)
+    paises = preparar_paises(ocorrencias)
+    importacoes = _registros_importacao(
+        ocorrencias, inicio, caminho_taxa, caminho_ocorrencias
+    )
     with conexao.cursor() as cursor:
-        sql_especies = SQL_UPSERT_ESPECIES.format(schema=schema)
-        sql_ocorrencias = SQL_UPSERT_OCORRENCIAS.format(schema=schema)
-        for lote in _lotes(especies, tamanho_lote):
-            cursor.executemany(sql_especies, lote)
+        cursor.executemany(SQL_UPSERT_PAISES.format(schema=schema), paises)
+        for lote in _lotes(taxa, tamanho_lote):
+            cursor.executemany(SQL_UPSERT_TAXA.format(schema=schema), lote)
         for lote in _lotes(ocorrencias, tamanho_lote):
-            cursor.executemany(sql_ocorrencias, lote)
-        cursor.execute(
-            f"""
-            INSERT INTO {schema}.load_runs (
-                species_file, occurrences_file, source_checksum,
-                species_rows, occurrence_rows
-            ) VALUES (%s, %s, %s, %s, %s)
-            """,
-            (
-                str(caminho_especies),
-                str(caminho_ocorrencias),
-                calcular_checksum([caminho_especies, caminho_ocorrencias]),
-                len(especies),
-                len(ocorrencias),
-            ),
-        )
-    return {"species": len(especies), "occurrences": len(ocorrencias)}
+            cursor.executemany(SQL_UPSERT_OCORRENCIAS.format(schema=schema), lote)
+        cursor.executemany(SQL_REGISTRAR_IMPORTACOES.format(schema=schema), importacoes)
+    return {
+        "countries": len(paises),
+        "taxa": len(taxa),
+        "occurrences": len(ocorrencias),
+        "imports": len(importacoes),
+    }
 
 
 def verificar_carga(conexao: Any, schema: str) -> dict[str, int]:
     schema = validar_schema(schema)
     with conexao.cursor() as cursor:
-        cursor.execute(f"SELECT COUNT(*) FROM {schema}.species")
-        especies = int(cursor.fetchone()[0])
-        cursor.execute(f"SELECT COUNT(*) FROM {schema}.occurrences")
-        ocorrencias = int(cursor.fetchone()[0])
+        contagens = {}
+        for chave, tabela in (
+            ("countries", "countries"),
+            ("taxa", "taxa"),
+            ("occurrences", "occurrences"),
+            ("imports", "data_imports"),
+        ):
+            cursor.execute(f"SELECT COUNT(*) FROM {schema}.{tabela}")
+            contagens[chave] = int(cursor.fetchone()[0])
         cursor.execute(
             f"""
             SELECT COUNT(*)
             FROM {schema}.occurrences o
-            LEFT JOIN {schema}.species s ON s.species_key = o.species_key
-            WHERE s.species_key IS NULL
+            LEFT JOIN {schema}.taxa t ON t.taxon_key = o.taxon_key
+            LEFT JOIN {schema}.countries c ON c.iso_code = o.country_code
+            WHERE t.taxon_key IS NULL OR c.iso_code IS NULL
             """
         )
-        orfas = int(cursor.fetchone()[0])
-    return {"species": especies, "occurrences": ocorrencias, "orphans": orfas}
+        contagens["orphans"] = int(cursor.fetchone()[0])
+    return contagens
 
 
 def carregar_csv(caminho: Path, colunas: set[str], nome: str) -> pd.DataFrame:
     if not caminho.exists():
         raise FileNotFoundError(f"Arquivo de {nome} nao encontrado: {caminho}")
-    dados = pd.read_csv(caminho, dtype={"speciesKey": "string"})
+    dados = pd.read_csv(
+        caminho,
+        dtype={"speciesKey": "string", "countryCode": "string"},
+    )
     validar_tabela(dados, colunas, nome)
     return dados
 
 
 def criar_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Carrega especies e ocorrencias no PostgreSQL."
+        description="Carrega países, táxons e ocorrências no PostgreSQL."
     )
     parser.add_argument("--especies", type=Path, default=ARQUIVO_ESPECIES)
     parser.add_argument("--ocorrencias", type=Path, default=ARQUIVO_OCORRENCIAS)
@@ -523,17 +511,18 @@ def main() -> None:
         argumentos.env_file, argumentos.schema
     )
     schema = configuracao_banco.schema
-    dados_especies = carregar_csv(argumentos.especies, COLUNAS_ESPECIES, "especies")
+    dados_taxa = carregar_csv(argumentos.especies, COLUNAS_TAXA, "taxa")
     dados_ocorrencias = carregar_csv(
         argumentos.ocorrencias, COLUNAS_OCORRENCIAS, "ocorrencias"
     )
-    especies = preparar_especies(dados_especies)
+    taxa = preparar_taxa(dados_taxa)
     ocorrencias = preparar_ocorrencias(dados_ocorrencias)
-    validar_referencias(especies, ocorrencias)
+    validar_referencias(taxa, ocorrencias)
 
     if argumentos.dry_run:
-        LOGGER.info("Espécies validadas: %s", len(especies))
+        LOGGER.info("Táxons validados: %s", len(taxa))
         LOGGER.info("Ocorrências validadas: %s", len(ocorrencias))
+        LOGGER.info("Países encontrados: %s", len(preparar_paises(ocorrencias)))
         LOGGER.info("Dry-run concluído; nenhuma conexão foi aberta.")
         return
 
@@ -546,7 +535,7 @@ def main() -> None:
         with psycopg.connect(database_url) as conexao:
             resultado = carregar_registros(
                 conexao,
-                especies,
+                taxa,
                 ocorrencias,
                 schema,
                 argumentos.tamanho_lote,
@@ -557,9 +546,12 @@ def main() -> None:
     except psycopg.Error as erro:
         raise SystemExit(f"Falha na carga PostgreSQL: {erro}") from erro
 
-    LOGGER.info("Espécies processadas: %s", resultado["species"])
+    LOGGER.info("Países processados: %s", resultado["countries"])
+    LOGGER.info("Táxons processados: %s", resultado["taxa"])
     LOGGER.info("Ocorrências processadas: %s", resultado["occurrences"])
-    LOGGER.info("Espécies no banco: %s", verificacao["species"])
+    LOGGER.info("Importações registradas: %s", resultado["imports"])
+    LOGGER.info("Países no banco: %s", verificacao["countries"])
+    LOGGER.info("Táxons no banco: %s", verificacao["taxa"])
     LOGGER.info("Ocorrências no banco: %s", verificacao["occurrences"])
     LOGGER.info("Referências órfãs: %s", verificacao["orphans"])
 
