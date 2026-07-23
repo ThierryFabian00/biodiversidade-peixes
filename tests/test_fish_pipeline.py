@@ -29,6 +29,8 @@ def criar_resposta(dados):
 
 def registro_especie(chave, longitude=5, latitude=5, rank="SPECIES"):
     classificacao = [
+        {"key": "K", "name": "Animalia", "rank": "KINGDOM"},
+        {"key": "P", "name": "Chordata", "rank": "PHYLUM"},
         {"key": "8VR36", "name": "Actinopterygii", "rank": "GIGACLASS"},
         {"key": "8V4VD", "name": "Teleostei", "rank": "CLASS"},
         {"key": "ORD", "name": "Siluriformes", "rank": "ORDER"},
@@ -183,6 +185,9 @@ class TestTransformacaoPeixes(unittest.TestCase):
         self.assertIsNone(problema)
         self.assertEqual(normalizado["speciesKey"], "SP1")
         self.assertEqual(normalizado["family"], "Pimelodidae")
+        self.assertEqual(normalizado["kingdom"], "Animalia")
+        self.assertEqual(normalizado["phylum"], "Chordata")
+        self.assertEqual(normalizado["species"], "Pimelodus maculatus")
         self.assertEqual(normalizado["fishGroup"], "Actinopterygii")
         self.assertEqual(normalizado["datasetName"], "Dataset de teste")
         self.assertIn("creativecommons.org/licenses/by/4.0", normalizado["license"])

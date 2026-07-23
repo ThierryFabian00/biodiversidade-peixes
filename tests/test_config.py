@@ -107,7 +107,14 @@ class TestServicosConsulta(unittest.TestCase):
     def test_catalogo_de_paises_e_extensivel(self):
         self.assertEqual(
             dict(PAISES),
-            {"Brasil": "BR", "Suíça": "CH", "Alemanha": "DE", "França": "FR"},
+            {
+                "Brasil": "BR",
+                "Suíça": "CH",
+                "Alemanha": "DE",
+                "França": "FR",
+                "Argentina": "AR",
+                "Paraguai": "PY",
+            },
         )
         self.assertEqual(
             [(pais.nome, pais.codigo_iso) for pais in listar_paises()],

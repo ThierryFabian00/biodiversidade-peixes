@@ -23,6 +23,8 @@ PAISES: Mapping[str, str] = MappingProxyType(
         "Suíça": "CH",
         "Alemanha": "DE",
         "França": "FR",
+        "Argentina": "AR",
+        "Paraguai": "PY",
     }
 )
 ESPECIE_PADRAO = "Oreochromis niloticus"

@@ -18,43 +18,43 @@ def criar_consultas(schema: str) -> dict[str, str]:
         "resumo": f"""
             SELECT
                 (SELECT COUNT(*) FROM {schema}.occurrences) AS occurrence_count,
-                (SELECT COUNT(*) FROM {schema}.species) AS species_count,
-                MIN(event_year) AS first_year,
-                MAX(event_year) AS last_year
+                (SELECT COUNT(*) FROM {schema}.taxa) AS species_count,
+                MIN(year) AS first_year,
+                MAX(year) AS last_year
             FROM {schema}.occurrences
         """,
         "ranking": f"""
-            SELECT species_key, canonical_name, origin_status, occurrence_count
+            SELECT country_code, taxon_key, canonical_name, origin_status, occurrence_count
             FROM {schema}.vw_species_ranking
-            ORDER BY occurrence_count DESC, canonical_name
+            ORDER BY occurrence_count DESC, country_code, canonical_name
             LIMIT %s
         """,
         "anos": f"""
-            SELECT event_year, occurrence_count
+            SELECT country_code, year, occurrence_count
             FROM {schema}.vw_occurrences_by_year
-            ORDER BY event_year
+            ORDER BY country_code, year
         """,
         "meses": f"""
-            SELECT event_month, COUNT(*)::BIGINT AS occurrence_count
+            SELECT country_code, month, COUNT(*)::BIGINT AS occurrence_count
             FROM {schema}.occurrences
-            WHERE event_month IS NOT NULL
-            GROUP BY event_month
-            ORDER BY event_month
+            WHERE month IS NOT NULL
+            GROUP BY country_code, month
+            ORDER BY country_code, month
         """,
         "origens": f"""
             SELECT origin_status, COUNT(*)::BIGINT AS species_count
-            FROM {schema}.species
+            FROM {schema}.taxa
             GROUP BY origin_status
             ORDER BY species_count DESC, origin_status
         """,
         "especie": f"""
             SELECT
-                gbif_id, species_key, canonical_name, event_date,
-                decimal_latitude, decimal_longitude, state_province,
+                gbif_key, taxon_key, canonical_name, event_date,
+                latitude, longitude, state_province,
                 basis_of_record
             FROM {schema}.vw_occurrence_details
             WHERE canonical_name ILIKE %s
-            ORDER BY event_date DESC NULLS LAST, gbif_id
+            ORDER BY event_date DESC NULLS LAST, gbif_key
             LIMIT %s
         """,
     }

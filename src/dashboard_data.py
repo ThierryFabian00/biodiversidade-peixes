@@ -51,33 +51,36 @@ def consulta_dashboard(schema: str) -> str:
     schema = validar_schema(schema)
     return f"""
         SELECT
-            o.gbif_id,
-            o.species_key,
-            s.canonical_name,
-            s.family,
-            s.order_name,
-            s.origin_status,
-            s.iucn_category,
+            o.gbif_key AS gbif_id,
+            o.taxon_key AS species_key,
+            t.canonical_name,
+            t.family,
+            t.order_name,
+            t.origin_status,
+            t.iucn_category,
             o.event_date,
-            o.event_year,
-            o.event_month,
-            o.decimal_latitude,
-            o.decimal_longitude,
+            o.year AS event_year,
+            o.month AS event_month,
+            o.latitude AS decimal_latitude,
+            o.longitude AS decimal_longitude,
             o.state_province,
             o.locality,
             o.basis_of_record,
             o.taxonomic_issues,
             o.occurrence_issues
         FROM {schema}.occurrences o
-        JOIN {schema}.species s ON s.species_key = o.species_key
-        ORDER BY o.gbif_id
+        JOIN {schema}.taxa t ON t.taxon_key = o.taxon_key
+        WHERE o.country_code = %s
+        ORDER BY o.gbif_key
     """
 
 
-def carregar_postgresql(database_url: str, schema: str) -> pd.DataFrame:
+def carregar_postgresql(
+    database_url: str, schema: str, codigo_pais: str
+) -> pd.DataFrame:
     with psycopg.connect(database_url, row_factory=dict_row) as conexao:
         with conexao.cursor() as cursor:
-            cursor.execute(consulta_dashboard(schema))
+            cursor.execute(consulta_dashboard(schema), (codigo_pais,))
             return pd.DataFrame(cursor.fetchall(), columns=COLUNAS_DASHBOARD)
 
 
@@ -194,12 +197,12 @@ def carregar_dados_dashboard(
         and caminho_especies.exists()
     )
     aviso_fonte = None
-    if arquivos_do_pais_disponiveis:
+    if arquivos_do_pais_disponiveis and not database_url:
         dados = carregar_csv(caminho_ocorrencias, caminho_especies)
         fonte = "CSV"
     elif database_url:
         try:
-            dados = carregar_postgresql(database_url, schema)
+            dados = carregar_postgresql(database_url, schema, pais.codigo_iso)
             fonte = "PostgreSQL"
         except psycopg.Error:
             aviso_fonte = "PostgreSQL indisponivel; exibindo os CSVs processados."
@@ -220,7 +223,11 @@ def carregar_dados_dashboard(
         dados = carregar_csv(caminho_ocorrencias, caminho_especies)
         fonte = "CSV"
 
-    codigo_pais_fonte = pais.codigo_iso if arquivos_do_pais_disponiveis else PAIS_PADRAO
+    codigo_pais_fonte = (
+        pais.codigo_iso
+        if arquivos_do_pais_disponiveis or fonte == "PostgreSQL"
+        else PAIS_PADRAO
+    )
     dados = normalizar_dados(dados, codigo_pais_fonte)
     dados = dados.loc[dados["country_code"].eq(pais.codigo_iso)].copy()
     avisos = [aviso_fonte] if aviso_fonte else []

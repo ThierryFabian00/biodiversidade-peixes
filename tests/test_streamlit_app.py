@@ -31,8 +31,8 @@ class TestStreamlitApp(unittest.TestCase):
             ["Visão geral", "Distribuição", "Qualidade", "Dados"],
         )
         metricas = {metrica.label: metrica.value for metrica in app.metric}
-        self.assertEqual(metricas["Ocorrências"], "3.792")
-        self.assertEqual(metricas["Espécies"], "356")
+        self.assertEqual(metricas["Ocorrências"], "3.764")
+        self.assertEqual(metricas["Espécies"], "352")
         self.assertEqual(app.selectbox[0].label, "País")
         self.assertEqual(app.selectbox[0].value, "BR")
 
