@@ -202,6 +202,7 @@ class TestModeloPostgreSQL(unittest.TestCase):
                         "records_rejected_taxonomy": 1,
                     }
                 },
+                substituir_paises=True,
             )
 
         self.assertEqual(
@@ -209,6 +210,11 @@ class TestModeloPostgreSQL(unittest.TestCase):
             {"countries": 1, "taxa": 1, "occurrences": 1, "imports": 1},
         )
         lotes = conexao.cursores[1].lotes
+        self.assertIn(
+            "DELETE FROM biodiversity.occurrences",
+            conexao.cursores[1].executados[0][0],
+        )
+        self.assertEqual(conexao.cursores[1].executados[0][1], (["BR"],))
         self.assertEqual(len(lotes), 4)
         self.assertIn("ON CONFLICT (iso_code)", lotes[0][0])
         self.assertIn("ON CONFLICT (taxon_key)", lotes[1][0])

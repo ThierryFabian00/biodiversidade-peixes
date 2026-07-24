@@ -454,6 +454,8 @@ def carregar_registros(
     caminho_taxa: Path,
     caminho_ocorrencias: Path,
     estatisticas_importacao: Mapping[str, Mapping[str, int]] | None = None,
+    *,
+    substituir_paises: bool = False,
 ) -> dict[str, int]:
     schema = validar_schema(schema)
     validar_referencias(taxa, ocorrencias)
@@ -469,6 +471,11 @@ def carregar_registros(
     )
     with conexao.cursor() as cursor:
         cursor.executemany(SQL_UPSERT_PAISES.format(schema=schema), paises)
+        if substituir_paises and paises:
+            cursor.execute(
+                f"DELETE FROM {schema}.occurrences WHERE country_code = ANY(%s)",
+                ([pais["iso_code"] for pais in paises],),
+            )
         for lote in _lotes(taxa, tamanho_lote):
             cursor.executemany(SQL_UPSERT_TAXA.format(schema=schema), lote)
         for lote in _lotes(ocorrencias, tamanho_lote):

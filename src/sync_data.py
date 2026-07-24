@@ -299,6 +299,7 @@ def sincronizar_dados_pais(
                     "records_rejected_taxonomy": len(problemas),
                 }
             },
+            substituir_paises=True,
         )
         status = consultar_status_cache(
             conexao, schema, codigo_pais, grupos_taxonomicos
