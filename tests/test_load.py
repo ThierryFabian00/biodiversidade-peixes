@@ -134,6 +134,8 @@ class TestModeloPostgreSQL(unittest.TestCase):
         self.assertIn("idx_occurrences_country", comandos)
         self.assertIn("idx_occurrences_taxon", comandos)
         self.assertIn("idx_occurrences_year", comandos)
+        self.assertIn("records_rejected_taxonomy", comandos)
+        self.assertIn("quality_stats_complete", comandos)
         self.assertIn("RENAME TO taxa", comandos)
         with self.assertRaises(ValueError):
             validar_schema("biodiversity; DROP TABLE taxa")
@@ -193,6 +195,13 @@ class TestModeloPostgreSQL(unittest.TestCase):
                 1,
                 caminho_taxa,
                 caminho_ocorrencias,
+                {
+                    "BR": {
+                        "records_received": 3,
+                        "records_rejected": 2,
+                        "records_rejected_taxonomy": 1,
+                    }
+                },
             )
 
         self.assertEqual(
@@ -207,6 +216,11 @@ class TestModeloPostgreSQL(unittest.TestCase):
         self.assertIn("data_imports", lotes[3][0])
         self.assertEqual(lotes[3][1][0]["country_code"], "BR")
         self.assertEqual(lotes[3][1][0]["taxon_key"], "SP1")
+        self.assertEqual(lotes[3][1][0]["records_received"], 3)
+        self.assertEqual(lotes[3][1][0]["records_saved"], 1)
+        self.assertEqual(lotes[3][1][0]["records_rejected"], 2)
+        self.assertEqual(lotes[3][1][0]["records_rejected_taxonomy"], 1)
+        self.assertTrue(lotes[3][1][0]["quality_stats_complete"])
         self.assertEqual(lotes[3][1][0]["status"], "COMPLETED")
 
     def test_registra_uma_importacao_por_pais(self):

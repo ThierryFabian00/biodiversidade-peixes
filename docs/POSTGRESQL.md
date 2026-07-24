@@ -111,8 +111,10 @@ python -m src.load `
 
 `countries.iso_code`, `taxa.taxon_key` e `occurrences.gbif_key` impedem
 duplicidades. Cada execução concluída acrescenta uma linha em `data_imports`
-por país, com horário inicial/final, checksum, arquivos e contagens recebidas e
-salvas.
+por país, com horário inicial/final, checksum, arquivos e contagens recebidas,
+salvas, descartadas e rejeitadas por identificação taxonômica.
+`quality_stats_complete` distingue cargas novas, com funil completo, de
+importações legadas que não preservavam todas essas contagens.
 
 ## Consultas
 

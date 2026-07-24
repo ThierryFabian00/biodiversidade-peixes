@@ -2,7 +2,7 @@ import argparse
 import hashlib
 import logging
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -139,11 +139,13 @@ ON CONFLICT (gbif_key) DO UPDATE SET
 SQL_REGISTRAR_IMPORTACOES = """
 INSERT INTO {schema}.data_imports (
     country_code, taxon_key, started_at, finished_at, records_received,
-    records_saved, status, taxa_file, occurrences_file, source_checksum
+    records_saved, records_rejected, records_rejected_taxonomy, status,
+    quality_stats_complete, taxa_file, occurrences_file, source_checksum
 ) VALUES (
     %(country_code)s, %(taxon_key)s, %(started_at)s, %(finished_at)s,
-    %(records_received)s, %(records_saved)s, %(status)s, %(taxa_file)s,
-    %(occurrences_file)s, %(source_checksum)s
+    %(records_received)s, %(records_saved)s, %(records_rejected)s,
+    %(records_rejected_taxonomy)s, %(status)s, %(quality_stats_complete)s,
+    %(taxa_file)s, %(occurrences_file)s, %(source_checksum)s
 )
 """
 
@@ -390,6 +392,7 @@ def _registros_importacao(
     inicio: datetime,
     caminho_taxa: Path,
     caminho_ocorrencias: Path,
+    estatisticas: Mapping[str, Mapping[str, int]] | None = None,
 ) -> list[dict[str, Any]]:
     checksum = calcular_checksum([caminho_taxa, caminho_ocorrencias])
     fim = datetime.now(timezone.utc)
@@ -401,14 +404,38 @@ def _registros_importacao(
             if registro["country_code"] == pais["iso_code"]
         ]
         chaves = {registro["taxon_key"] for registro in registros_pais}
+        estatistica_completa = bool(estatisticas and pais["iso_code"] in estatisticas)
+        estatistica = (estatisticas or {}).get(pais["iso_code"], {})
+        recebidos = int(estatistica.get("records_received", len(registros_pais)))
+        rejeitados_taxonomia = int(estatistica.get("records_rejected_taxonomy", 0))
+        descartados = int(
+            estatistica.get("records_rejected", recebidos - len(registros_pais))
+        )
+        if min(recebidos, descartados, rejeitados_taxonomia) < 0:
+            raise ValueError("As estatísticas da importação não podem ser negativas.")
+        if recebidos < len(registros_pais):
+            raise ValueError(
+                "Registros recebidos não pode ser menor que registros salvos."
+            )
+        if descartados != recebidos - len(registros_pais):
+            raise ValueError(
+                "Registros descartados deve ser a diferença entre recebidos e salvos."
+            )
+        if rejeitados_taxonomia > descartados:
+            raise ValueError(
+                "Rejeições taxonômicas não pode exceder registros descartados."
+            )
         importacoes.append(
             {
                 "country_code": pais["iso_code"],
                 "taxon_key": next(iter(chaves)) if len(chaves) == 1 else None,
                 "started_at": inicio,
                 "finished_at": fim,
-                "records_received": len(registros_pais),
+                "records_received": recebidos,
                 "records_saved": len(registros_pais),
+                "records_rejected": descartados,
+                "records_rejected_taxonomy": rejeitados_taxonomia,
+                "quality_stats_complete": estatistica_completa,
                 "status": "COMPLETED",
                 "taxa_file": str(caminho_taxa),
                 "occurrences_file": str(caminho_ocorrencias),
@@ -426,6 +453,7 @@ def carregar_registros(
     tamanho_lote: int,
     caminho_taxa: Path,
     caminho_ocorrencias: Path,
+    estatisticas_importacao: Mapping[str, Mapping[str, int]] | None = None,
 ) -> dict[str, int]:
     schema = validar_schema(schema)
     validar_referencias(taxa, ocorrencias)
@@ -433,7 +461,11 @@ def carregar_registros(
     criar_estrutura(conexao, schema)
     paises = preparar_paises(ocorrencias)
     importacoes = _registros_importacao(
-        ocorrencias, inicio, caminho_taxa, caminho_ocorrencias
+        ocorrencias,
+        inicio,
+        caminho_taxa,
+        caminho_ocorrencias,
+        estatisticas_importacao,
     )
     with conexao.cursor() as cursor:
         cursor.executemany(SQL_UPSERT_PAISES.format(schema=schema), paises)

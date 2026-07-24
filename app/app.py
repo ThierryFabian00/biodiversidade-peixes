@@ -517,15 +517,69 @@ with aba_distribuicao:
 with aba_qualidade:
     qualidade = indicadores_qualidade(filtrados)
     total = max(len(filtrados), 1)
+
+    st.subheader("Aproveitamento da última carga")
+    resumo_importacao = resultado.resumo_importacao
+    if resumo_importacao:
+        colunas_funil = st.columns(4)
+        colunas_funil[0].metric(
+            "Recebidos", formatar_numero(resumo_importacao.registros_recebidos)
+        )
+        colunas_funil[1].metric(
+            "Aproveitados", formatar_numero(resumo_importacao.registros_salvos)
+        )
+        colunas_funil[2].metric(
+            "Descartados", formatar_numero(resumo_importacao.registros_descartados)
+        )
+        colunas_funil[3].metric(
+            "Aproveitamento", f"{resumo_importacao.percentual_aproveitado:.1f}%"
+        )
+        st.caption(
+            f"Sem identificação no nível de espécie: "
+            f"{formatar_numero(resumo_importacao.sem_nivel_especie)} registros."
+        )
+    else:
+        st.caption(
+            "O resumo detalhado não está disponível para esta carga. "
+            "Os indicadores dos registros aproveitados permanecem abaixo."
+        )
+
+    st.subheader("Indicadores dos registros aproveitados")
     colunas_qualidade = st.columns(4)
     itens_qualidade = [
+        ("Sem data", qualidade["missing_date"]),
+        ("Data apenas mensal", qualidade["monthly_date"]),
+        ("Coordenada ausente/inválida", qualidade["invalid_coordinates"]),
+        ("Duplicidade potencial", qualidade["potential_duplicate"]),
+    ]
+    for coluna, (rotulo, valor) in zip(colunas_qualidade, itens_qualidade, strict=True):
+        coluna.metric(rotulo, formatar_numero(valor), f"{100 * valor / total:.1f}%")
+
+    colunas_qualidade = st.columns(4)
+    itens_qualidade = [
+        ("Problema indicado pelo GBIF", qualidade["gbif_issue"]),
+        ("Possivelmente fora do país", qualidade["potential_outside_country"]),
         ("Sem localidade", qualidade["missing_locality"]),
-        ("Alerta taxonômico", qualidade["taxonomic_issue"]),
-        ("Alerta de ocorrência", qualidade["occurrence_issue"]),
         ("Unidade inesperada", qualidade["unexpected_state"]),
     ]
     for coluna, (rotulo, valor) in zip(colunas_qualidade, itens_qualidade, strict=True):
         coluna.metric(rotulo, formatar_numero(valor), f"{100 * valor / total:.1f}%")
+
+    evidencia = distribuicao_tipo(filtrados).head(12)
+    figura_evidencia = px.bar(
+        evidencia.sort_values("occurrence_count"),
+        x="occurrence_count",
+        y="basis_of_record",
+        orientation="h",
+        labels={"occurrence_count": "Registros", "basis_of_record": ""},
+        title="Distribuição por tipo de evidência",
+        color_discrete_sequence=["#4f772d"],
+    )
+    st.plotly_chart(
+        layout_grafico(figura_evidencia, 420),
+        width="stretch",
+        config={"displayModeBar": False},
+    )
 
     alertas_ocorrencia = frequencia_alertas(filtrados, "occurrence_issues").head(12)
     alertas_taxonomicos = frequencia_alertas(filtrados, "taxonomic_issues").head(12)

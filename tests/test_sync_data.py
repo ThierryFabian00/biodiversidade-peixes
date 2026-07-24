@@ -96,6 +96,10 @@ class TestSincronizacao(unittest.TestCase):
         self.assertEqual(resultado.registros_salvos, 1)
         buscar_gbif.assert_called_once()
         carregar.assert_called_once()
+        estatisticas = carregar.call_args.args[7]["CH"]
+        self.assertEqual(estatisticas["records_received"], 1)
+        self.assertEqual(estatisticas["records_rejected"], 0)
+        self.assertEqual(estatisticas["records_rejected_taxonomy"], 0)
         salvar_tabelas.assert_called_once()
         self.assertEqual(eventos[0].etapa, "cache")
         self.assertEqual(eventos[-1].etapa, "concluido")

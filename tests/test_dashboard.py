@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from src.dashboard_data import (
+    ResumoImportacao,
     calcular_indicadores,
     carregar_csv,
     carregar_dados_dashboard,
@@ -32,6 +33,7 @@ def dados_dashboard():
                 "origin_status": "NATIVE",
                 "iucn_category": "LC",
                 "event_date": "2020-01-02T00:00:00Z",
+                "date_precision": "DAY",
                 "event_year": 2020,
                 "event_month": 1,
                 "decimal_latitude": -23.0,
@@ -51,6 +53,7 @@ def dados_dashboard():
                 "origin_status": "INTRODUCED",
                 "iucn_category": "LC",
                 "event_date": "2021-03-04T00:00:00Z",
+                "date_precision": "MONTH",
                 "event_year": 2021,
                 "event_month": 3,
                 "decimal_latitude": -22.0,
@@ -70,6 +73,7 @@ def dados_dashboard():
                 "origin_status": "NATIVE",
                 "iucn_category": "LC",
                 "event_date": "2021-04-05T00:00:00Z",
+                "date_precision": "DAY",
                 "event_year": 2021,
                 "event_month": 4,
                 "decimal_latitude": -21.0,
@@ -141,8 +145,32 @@ class TestDadosDashboard(unittest.TestCase):
         alertas = frequencia_alertas(self.dados, "occurrence_issues").set_index("issue")
 
         self.assertEqual(qualidade["missing_locality"], 1)
+        self.assertEqual(qualidade["monthly_date"], 1)
         self.assertEqual(qualidade["taxonomic_issue"], 1)
         self.assertEqual(alertas.loc["COORDINATE_ROUNDED", "record_count"], 2)
+
+    def test_detecta_datas_coordenadas_duplicidades_e_pais(self):
+        brutos = dados_dashboard()
+        duplicado = brutos.iloc[0].copy()
+        duplicado["gbif_id"] = 4
+        duplicado["occurrence_issues"] = ""
+        brutos = pd.concat([brutos, duplicado.to_frame().T], ignore_index=True)
+        brutos.loc[2, "event_date"] = pd.NA
+        brutos.loc[2, "decimal_latitude"] = 95
+        brutos.loc[2, "occurrence_issues"] = "COUNTRY_COORDINATE_MISMATCH"
+
+        qualidade = indicadores_qualidade(normalizar_dados(brutos))
+
+        self.assertEqual(qualidade["missing_date"], 1)
+        self.assertEqual(qualidade["invalid_coordinates"], 1)
+        self.assertEqual(qualidade["potential_duplicate"], 2)
+        self.assertEqual(qualidade["potential_outside_country"], 1)
+        self.assertEqual(qualidade["gbif_issue"], 3)
+
+    def test_calcula_percentual_aproveitado_da_importacao(self):
+        resumo = ResumoImportacao(5000, 3764, 1236, 555)
+
+        self.assertAlmostEqual(resumo.percentual_aproveitado, 75.28)
 
     def test_carrega_fallback_csv(self):
         ocorrencias = pd.DataFrame(
