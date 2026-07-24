@@ -1,10 +1,11 @@
 import argparse
 import json
 import logging
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import geopandas as gpd
 import requests
@@ -18,6 +19,7 @@ from src.config import (
     LIMITE_BUSCA_GBIF,
     PAIS_PADRAO,
     TAMANHO_MAXIMO_PAGINA,
+    TIMEOUT_GBIF_SEGUNDOS,
     ConfiguracaoAplicacao,
 )
 from src.filter_basin import ARQUIVO_LIMITE, carregar_limite
@@ -69,7 +71,7 @@ def requisitar_pagina(
         sessao,
         f"{gbif_api}/occurrence/search",
         parametros,
-        timeout=60,
+        timeout=TIMEOUT_GBIF_SEGUNDOS,
     )
     if not isinstance(dados.get("results"), list):
         raise ValueError("A API do GBIF retornou uma página inválida.")
@@ -82,6 +84,7 @@ def buscar_ocorrencias_peixes(
     tamanho_pagina: int = TAMANHO_MAXIMO_PAGINA,
     sessao: requests.Session | None = None,
     grupos_taxonomicos: Mapping[str, str] = GRUPOS_PEIXES,
+    progresso: Callable[[int, int, int], None] | None = None,
     gbif_api: str = GBIF_API,
     pais: str = PAIS_PADRAO,
 ) -> ResultadoPeixes:
@@ -121,6 +124,16 @@ def buscar_ocorrencias_peixes(
             total_disponivel = dados["count"]
 
         registros.extend(pagina)
+        total_alvo = min(total_disponivel or max_registros, max_registros)
+        coletados = len(registros)
+        LOGGER.info(
+            "Progresso da coleta: %s/%s registros (%s páginas).",
+            coletados,
+            total_alvo,
+            paginas,
+        )
+        if progresso:
+            progresso(coletados, total_alvo, paginas)
         if dados.get("endOfRecords") or not pagina:
             break
         offset += len(pagina)

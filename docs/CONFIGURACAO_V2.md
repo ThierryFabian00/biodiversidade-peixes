@@ -35,8 +35,13 @@ para evitar regressões.
 | `DATABASE_URL` | sem valor seguro | Conexão PostgreSQL da aplicação |
 | `DB_SCHEMA` | `biodiversity` | Schema validado do banco |
 
-O tamanho máximo de uma página GBIF permanece em 300, o teto interativo padrão
-é de 10.000 registros e o limite técnico da API de busca permanece em 100.000.
+A coleta interativa usa páginas de até 300 registros, limite de 5.000 registros
+por atualização, timeout de 60 segundos e três novas tentativas com backoff de
+0,5 segundo para respostas temporariamente indisponíveis.
+
+O tamanho máximo de uma página GBIF permanece em 300. Consultas de uma espécie
+usam teto padrão de 10.000 registros; a atualização multiespécies do dashboard
+usa 5.000. O limite técnico da API de busca permanece em 100.000.
 `LIMITE_PADRAO` continua aceito como variável de ambiente de compatibilidade,
 mas novos ambientes devem usar `LIMITE_CONSULTA_PADRAO`.
 
