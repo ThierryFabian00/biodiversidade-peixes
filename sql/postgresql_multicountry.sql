@@ -284,11 +284,21 @@ CREATE TABLE IF NOT EXISTS __SCHEMA__.data_imports (
     finished_at TIMESTAMPTZ,
     records_received INTEGER NOT NULL CHECK (records_received >= 0),
     records_saved INTEGER NOT NULL DEFAULT 0 CHECK (records_saved >= 0),
+    records_rejected INTEGER NOT NULL DEFAULT 0 CHECK (records_rejected >= 0),
+    records_rejected_taxonomy INTEGER NOT NULL DEFAULT 0
+        CHECK (records_rejected_taxonomy >= 0),
+    quality_stats_complete BOOLEAN NOT NULL DEFAULT FALSE,
     status TEXT NOT NULL CHECK (status IN ('STARTED', 'COMPLETED', 'FAILED')),
     taxa_file TEXT NOT NULL,
     occurrences_file TEXT NOT NULL,
     source_checksum CHAR(64) NOT NULL
 )
+
+-- statement
+ALTER TABLE __SCHEMA__.data_imports
+    ADD COLUMN IF NOT EXISTS records_rejected INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS records_rejected_taxonomy INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS quality_stats_complete BOOLEAN NOT NULL DEFAULT FALSE
 
 -- statement
 CREATE INDEX IF NOT EXISTS idx_occurrences_country

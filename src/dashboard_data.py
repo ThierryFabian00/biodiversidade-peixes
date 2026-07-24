@@ -18,12 +18,28 @@ from src.transform_fish import (
 
 
 @dataclass(frozen=True)
+class ResumoImportacao:
+    registros_recebidos: int
+    registros_salvos: int
+    registros_descartados: int
+    sem_nivel_especie: int
+    atualizado_em: Any | None = None
+
+    @property
+    def percentual_aproveitado(self) -> float:
+        if not self.registros_recebidos:
+            return 0.0
+        return 100 * self.registros_salvos / self.registros_recebidos
+
+
+@dataclass(frozen=True)
 class ResultadoFonte:
     dados: pd.DataFrame
     fonte: str
     aviso: str | None = None
     pais_codigo: str = PAIS_PADRAO
     pais_nome: str = "Brasil"
+    resumo_importacao: ResumoImportacao | None = None
 
 
 COLUNAS_DASHBOARD = [
@@ -35,6 +51,7 @@ COLUNAS_DASHBOARD = [
     "origin_status",
     "iucn_category",
     "event_date",
+    "date_precision",
     "event_year",
     "event_month",
     "decimal_latitude",
@@ -59,6 +76,7 @@ def consulta_dashboard(schema: str) -> str:
             t.origin_status,
             t.iucn_category,
             o.event_date,
+            o.date_precision,
             o.year AS event_year,
             o.month AS event_month,
             o.latitude AS decimal_latitude,
@@ -82,6 +100,36 @@ def carregar_postgresql(
         with conexao.cursor() as cursor:
             cursor.execute(consulta_dashboard(schema), (codigo_pais,))
             return pd.DataFrame(cursor.fetchall(), columns=COLUNAS_DASHBOARD)
+
+
+def carregar_resumo_importacao(
+    database_url: str, schema: str, codigo_pais: str
+) -> ResumoImportacao | None:
+    schema = validar_schema(schema)
+    with psycopg.connect(database_url, row_factory=dict_row) as conexao:
+        with conexao.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT records_received, records_saved, records_rejected,
+                       records_rejected_taxonomy, quality_stats_complete,
+                       finished_at
+                FROM {schema}.data_imports
+                WHERE country_code = %s AND status = 'COMPLETED'
+                ORDER BY finished_at DESC NULLS LAST, id DESC
+                LIMIT 1
+                """,
+                (codigo_pais,),
+            )
+            linha = cursor.fetchone()
+    if not linha or not linha["quality_stats_complete"]:
+        return None
+    return ResumoImportacao(
+        registros_recebidos=int(linha["records_received"]),
+        registros_salvos=int(linha["records_saved"]),
+        registros_descartados=int(linha["records_rejected"]),
+        sem_nivel_especie=int(linha["records_rejected_taxonomy"]),
+        atualizado_em=linha["finished_at"],
+    )
 
 
 def carregar_csv(
@@ -109,6 +157,21 @@ def carregar_csv(
         ]
     ].drop_duplicates("speciesKey")
     dados = ocorrencias.merge(especies, on="speciesKey", how="left")
+    if "datePrecision" not in dados:
+        original = dados.get("eventDateOriginal", dados.get("eventDate"))
+        if original is None:
+            dados["datePrecision"] = pd.NA
+        else:
+            texto = original.astype("string").str.strip()
+            dados["datePrecision"] = "UNKNOWN"
+            dados.loc[texto.str.fullmatch(r"\d{4}", na=False), "datePrecision"] = "YEAR"
+            dados.loc[
+                texto.str.fullmatch(r"\d{4}-\d{2}", na=False), "datePrecision"
+            ] = "MONTH"
+            dados.loc[
+                texto.str.match(r"^\d{4}-\d{2}-\d{2}", na=False), "datePrecision"
+            ] = "DAY"
+            dados.loc[texto.isna(), "datePrecision"] = pd.NA
     return dados.rename(
         columns={
             "gbifID": "gbif_id",
@@ -118,6 +181,7 @@ def carregar_csv(
             "originStatus": "origin_status",
             "iucnCategory": "iucn_category",
             "eventDate": "event_date",
+            "datePrecision": "date_precision",
             "year": "event_year",
             "month": "event_month",
             "decimalLatitude": "decimal_latitude",
@@ -133,13 +197,16 @@ def carregar_csv(
 def normalizar_dados(
     dados: pd.DataFrame, codigo_pais_fonte: str = PAIS_PADRAO
 ) -> pd.DataFrame:
+    dados = dados.copy()
+    if "date_precision" not in dados:
+        dados["date_precision"] = pd.NA
     ausentes = set(COLUNAS_DASHBOARD).difference(dados.columns)
     if ausentes:
         raise ValueError(
             f"Colunas ausentes para o dashboard: {', '.join(sorted(ausentes))}"
         )
     pais_fonte = obter_pais(codigo_pais_fonte)
-    resultado = dados.copy()
+    resultado = dados
     if "country_code" not in resultado:
         resultado["country_code"] = pais_fonte.codigo_iso
     resultado["country_code"] = resultado["country_code"].map(normalizar_codigo_pais)
@@ -149,6 +216,9 @@ def normalizar_dados(
     resultado["species_key"] = resultado["species_key"].astype("string")
     resultado["event_date"] = pd.to_datetime(
         resultado["event_date"], errors="coerce", utc=True, format="mixed"
+    )
+    resultado["date_precision"] = (
+        resultado["date_precision"].astype("string").str.strip().str.upper()
     )
     resultado["event_year"] = pd.to_numeric(
         resultado["event_year"], errors="coerce"
@@ -166,7 +236,35 @@ def normalizar_dados(
     resultado["state_normalized"] = resultado["state_province"].map(normalizar_estado)
     resultado["has_taxonomic_issue"] = resultado["taxonomic_issues"].fillna("").ne("")
     resultado["has_occurrence_issue"] = resultado["occurrence_issues"].fillna("").ne("")
+    resultado["has_gbif_issue"] = (
+        resultado["has_taxonomic_issue"] | resultado["has_occurrence_issue"]
+    )
     resultado["missing_locality"] = resultado["locality"].isna()
+    resultado["missing_date"] = resultado["event_date"].isna()
+    resultado["monthly_date"] = resultado["date_precision"].eq("MONTH").fillna(False)
+    latitude = resultado["decimal_latitude"]
+    longitude = resultado["decimal_longitude"]
+    resultado["invalid_coordinates"] = (
+        latitude.isna()
+        | longitude.isna()
+        | ~latitude.between(-90, 90)
+        | ~longitude.between(-180, 180)
+    )
+    assinatura_duplicidade = [
+        "species_key",
+        "decimal_latitude",
+        "decimal_longitude",
+        "event_date",
+    ]
+    completos = resultado[assinatura_duplicidade].notna().all(axis=1)
+    resultado["potential_duplicate"] = completos & resultado.duplicated(
+        assinatura_duplicidade, keep=False
+    )
+    resultado["potential_outside_country"] = (
+        resultado["occurrence_issues"]
+        .fillna("")
+        .str.contains(r"(?:^|\|)COUNTRY_COORDINATE_MISMATCH(?:\||$)", regex=True)
+    )
     resultado["unexpected_state"] = ~resultado["state_normalized"].isin(
         ESTADOS_ESPERADOS | {"Nao informado"}
     )
@@ -197,12 +295,16 @@ def carregar_dados_dashboard(
         and caminho_especies.exists()
     )
     aviso_fonte = None
+    resumo_importacao = None
     if arquivos_do_pais_disponiveis and not database_url:
         dados = carregar_csv(caminho_ocorrencias, caminho_especies)
         fonte = "CSV"
     elif database_url:
         try:
             dados = carregar_postgresql(database_url, schema, pais.codigo_iso)
+            resumo_importacao = carregar_resumo_importacao(
+                database_url, schema, pais.codigo_iso
+            )
             fonte = "PostgreSQL"
         except psycopg.Error:
             aviso_fonte = "PostgreSQL indisponivel; exibindo os CSVs processados."
@@ -241,6 +343,7 @@ def carregar_dados_dashboard(
         " ".join(avisos) or None,
         pais.codigo_iso,
         pais.nome,
+        resumo_importacao,
     )
 
 
@@ -343,6 +446,12 @@ def distribuicao_tipo(dados: pd.DataFrame) -> pd.DataFrame:
 
 def indicadores_qualidade(dados: pd.DataFrame) -> dict[str, int]:
     return {
+        "missing_date": int(dados["missing_date"].sum()),
+        "monthly_date": int(dados["monthly_date"].sum()),
+        "invalid_coordinates": int(dados["invalid_coordinates"].sum()),
+        "potential_duplicate": int(dados["potential_duplicate"].sum()),
+        "potential_outside_country": int(dados["potential_outside_country"].sum()),
+        "gbif_issue": int(dados["has_gbif_issue"].sum()),
         "missing_locality": int(dados["missing_locality"].sum()),
         "taxonomic_issue": int(dados["has_taxonomic_issue"].sum()),
         "occurrence_issue": int(dados["has_occurrence_issue"].sum()),

@@ -45,6 +45,8 @@ class StatusCache:
     registros: int
     taxa: int
     atualizado_em: datetime | None
+    registros_descartados: int = 0
+    estatisticas_completas: bool = False
 
     @property
     def disponivel(self) -> bool:
@@ -95,13 +97,27 @@ def consultar_status_cache(
                     FROM {schema}.data_imports i
                     WHERE i.country_code = %s
                       AND i.status = 'COMPLETED'
-                )
+                ),
+                COALESCE((
+                    SELECT i.records_rejected
+                    FROM {schema}.data_imports i
+                    WHERE i.country_code = %s
+                    ORDER BY i.finished_at DESC NULLS LAST, i.id DESC
+                    LIMIT 1
+                ), 0),
+                COALESCE((
+                    SELECT i.quality_stats_complete
+                    FROM {schema}.data_imports i
+                    WHERE i.country_code = %s
+                    ORDER BY i.finished_at DESC NULLS LAST, i.id DESC
+                    LIMIT 1
+                ), FALSE)
             FROM {schema}.occurrences o
             JOIN {schema}.taxa t ON t.taxon_key = o.taxon_key
             WHERE o.country_code = %s
               AND t.fish_group = ANY(%s)
             """,
-            (codigo_pais, codigo_pais, grupos),
+            (codigo_pais, codigo_pais, codigo_pais, codigo_pais, grupos),
         )
         linha = cursor.fetchone()
     return StatusCache(
@@ -109,6 +125,8 @@ def consultar_status_cache(
         registros=int(linha[0]),
         taxa=int(linha[1]),
         atualizado_em=linha[2],
+        registros_descartados=int(linha[3]),
+        estatisticas_completas=bool(linha[4]),
     )
 
 
@@ -120,7 +138,11 @@ def _consultar_cache_com_estrutura(
 ) -> StatusCache:
     try:
         return consultar_status_cache(conexao, schema, codigo_pais, grupos_taxonomicos)
-    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
+    except (
+        psycopg.errors.UndefinedColumn,
+        psycopg.errors.UndefinedTable,
+        psycopg.errors.InvalidSchemaName,
+    ):
         conexao.rollback()
         criar_estrutura(conexao, schema)
         return consultar_status_cache(conexao, schema, codigo_pais, grupos_taxonomicos)
@@ -269,6 +291,15 @@ def sincronizar_dados_pais(
             TAMANHO_LOTE_PADRAO,
             caminho_taxa,
             caminho_ocorrencias,
+            {
+                codigo_pais: {
+                    "records_received": len(resultado.registros),
+                    "records_rejected": len(resultado.registros)
+                    - len(ocorrencias_preparadas),
+                    "records_rejected_taxonomy": len(problemas),
+                }
+            },
+            substituir_paises=True,
         )
         status = consultar_status_cache(
             conexao, schema, codigo_pais, grupos_taxonomicos

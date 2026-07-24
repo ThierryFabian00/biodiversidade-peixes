@@ -125,6 +125,7 @@ fonte e ausencia eventual de metadados de publicacao na resposta da API.
 - [Analises](docs/ANALISES.md)
 - [PostgreSQL](docs/POSTGRESQL.md)
 - [Cache e atualização pelo GBIF](docs/CACHE_E_ATUALIZACAO_V2.md)
+- [Qualidade dos dados](docs/QUALIDADE_DADOS_V2.md)
 - [Dashboard](docs/DASHBOARD.md)
 - [Citacao e licencas](docs/CITACAO_E_LICENCAS.md)
 

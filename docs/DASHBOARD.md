@@ -44,7 +44,11 @@ O mapa usa PyDeck com o limite oficial simplificado apenas para renderização. 
 
 ### Qualidade
 
-A aba apresenta registros sem localidade, alertas taxonômicos, alertas de ocorrência e unidades administrativas inesperadas. As frequências dos códigos de alerta são exibidas separadamente.
+A aba apresenta o funil da última carga, o percentual aproveitado, registros sem
+identificação válida no nível de espécie, datas ausentes ou apenas mensais,
+coordenadas ausentes ou inválidas, duplicidades potenciais, alertas do GBIF e
+registros potencialmente fora do país. Também detalha a distribuição por tipo
+de evidência e as frequências dos códigos de alerta.
 
 ### Dados
 

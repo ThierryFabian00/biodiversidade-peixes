@@ -17,6 +17,11 @@ concluída registra `started_at`, `finished_at`, quantidades e checksums em
 `data_imports`. Assim, a data retornada como última atualização é o maior
 `finished_at` concluído para o país.
 
+Na atualização interativa, as ocorrências anteriores do país são substituídas
+pelo snapshot recém-normalizado dentro da mesma transação. Isso impede que
+registros ausentes na nova amostra permaneçam como dados obsoletos. Táxons
+compartilhados e dados dos demais países são preservados.
+
 ## Proteções da coleta
 
 - paginação de até 300 registros por requisição;
