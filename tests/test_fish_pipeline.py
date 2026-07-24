@@ -77,6 +77,7 @@ class TestExtracaoPeixes(unittest.TestCase):
 
     def test_paginacao_respeita_limite_da_amostra(self):
         sessao = Mock()
+        progresso = Mock()
         sessao.get.side_effect = [
             criar_resposta(
                 {
@@ -99,10 +100,15 @@ class TestExtracaoPeixes(unittest.TestCase):
             max_registros=3,
             tamanho_pagina=2,
             sessao=sessao,
+            progresso=progresso,
         )
 
         self.assertEqual(len(resultado.registros), 3)
         self.assertEqual(sessao.get.call_count, 2)
+        self.assertEqual(
+            progresso.call_args_list,
+            [unittest.mock.call(2, 3, 1), unittest.mock.call(3, 3, 2)],
+        )
 
     def test_aplica_somente_grupo_taxonomico_informado(self):
         sessao = Mock()

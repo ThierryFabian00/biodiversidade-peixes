@@ -38,6 +38,9 @@ flowchart LR
 
 O banco e a fonte preferencial do dashboard. Quando ele nao esta disponivel, a
 aplicacao usa os CSVs processados como alternativa somente de leitura.
+Ao selecionar um pais, o dashboard reutiliza os dados existentes no PostgreSQL.
+O GBIF so e consultado quando o cache esta vazio ou quando o usuario aciona
+**Atualizar dados do GBIF**.
 
 ## Tecnologias
 
@@ -121,6 +124,7 @@ fonte e ausencia eventual de metadados de publicacao na resposta da API.
 - [Taxonomia e especies introduzidas](docs/TAXONOMIA_E_STATUS.md)
 - [Analises](docs/ANALISES.md)
 - [PostgreSQL](docs/POSTGRESQL.md)
+- [Cache e atualização pelo GBIF](docs/CACHE_E_ATUALIZACAO_V2.md)
 - [Dashboard](docs/DASHBOARD.md)
 - [Citacao e licencas](docs/CITACAO_E_LICENCAS.md)
 

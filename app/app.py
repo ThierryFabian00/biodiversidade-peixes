@@ -5,6 +5,7 @@ from typing import Any
 import geopandas as gpd
 import pandas as pd
 import plotly.express as px
+import psycopg
 import pydeck as pdk
 import streamlit as st
 
@@ -27,7 +28,12 @@ from src.dashboard_data import (  # noqa: E402
 )
 from src.database import ConfiguracaoBanco  # noqa: E402
 from src.filter_basin import ARQUIVO_LIMITE  # noqa: E402
+from src.gbif_client import ErroGBIF  # noqa: E402
 from src.services.country_service import listar_paises, obter_pais  # noqa: E402
+from src.sync_data import (  # noqa: E402
+    ProgressoSincronizacao,
+    sincronizar_dados_pais,
+)
 
 CONFIGURACAO_BANCO = ConfiguracaoBanco.do_ambiente()
 
@@ -224,12 +230,61 @@ with st.sidebar:
         index=codigos_paises.index(PAIS_PADRAO),
         format_func=lambda codigo: f"{nomes_por_codigo[codigo]} ({codigo})",
     )
-    if st.button("Atualizar dados", icon=":material/refresh:", width="stretch"):
-        st.cache_data.clear()
-        st.rerun()
+    forcar_atualizacao = st.button(
+        "Atualizar dados do GBIF",
+        icon=":material/refresh:",
+        width="stretch",
+    )
 
 pais = obter_pais(codigo_pais)
 schema = CONFIGURACAO_BANCO.schema
+chave_cache = f"{schema}:{pais.codigo_iso}"
+sincronizacao = None
+widget_progresso: dict[str, Any] = {"valor": None}
+
+
+def atualizar_progresso(evento: ProgressoSincronizacao) -> None:
+    valor = (
+        min(evento.coletados / evento.total, 1.0)
+        if evento.total
+        else (1.0 if evento.etapa == "concluido" else 0.0)
+    )
+    if widget_progresso["valor"] is None:
+        widget_progresso["valor"] = st.sidebar.progress(valor, text=evento.mensagem)
+    else:
+        widget_progresso["valor"].progress(valor, text=evento.mensagem)
+
+
+database_url = CONFIGURACAO_BANCO.database_url
+deve_consultar_cache = database_url is not None and (
+    forcar_atualizacao or st.session_state.get("cache_verificado") != chave_cache
+)
+if deve_consultar_cache:
+    try:
+        assert database_url is not None
+        sincronizacao = sincronizar_dados_pais(
+            database_url,
+            schema,
+            pais.codigo_iso,
+            forcar_atualizacao=forcar_atualizacao,
+            callback=atualizar_progresso,
+        )
+        st.session_state["cache_verificado"] = chave_cache
+        if sincronizacao.fonte == "GBIF":
+            obter_dados.clear()
+            st.sidebar.success(
+                f"Atualização concluída: {sincronizacao.registros_salvos:,} registros."
+            )
+    except (ErroGBIF, psycopg.Error, ValueError) as erro:
+        st.sidebar.error(f"Não foi possível atualizar os dados: {erro}")
+    finally:
+        if widget_progresso["valor"] is not None:
+            widget_progresso["valor"].empty()
+elif forcar_atualizacao:
+    st.sidebar.warning(
+        "Defina DATABASE_URL para atualizar os dados diretamente do GBIF."
+    )
+
 try:
     resultado = obter_dados(schema, pais.codigo_iso)
 except (FileNotFoundError, ValueError) as erro:
