@@ -583,16 +583,16 @@ ultima_atualizacao = (
     pd.Timestamp(resultado.resumo_importacao.atualizado_em).strftime("%d/%m/%Y")
     if resultado.resumo_importacao
     and resultado.resumo_importacao.atualizado_em is not None
-    else t("not_available")
+    else None
 )
-colunas_metricas = st.columns(5)
 metricas = [
     (t("occurrences"), formatar_numero(indicadores["occurrences"])),
     (t("species"), formatar_numero(indicadores["species"])),
     (t("covered_period"), indicadores["period"]),
-    (t("last_update"), ultima_atualizacao),
-    (t("source"), fonte_traduzida),
 ]
+if ultima_atualizacao is not None:
+    metricas.append((t("last_update"), ultima_atualizacao))
+colunas_metricas = st.columns(len(metricas))
 for coluna, (rotulo, valor) in zip(colunas_metricas, metricas, strict=True):
     coluna.metric(rotulo, valor)
 
@@ -600,25 +600,12 @@ if filtrados.empty:
     st.info(t("empty_filters", name=pais.nome, code=pais.codigo_iso))
     st.stop()
 
-(
-    aba_visao,
-    aba_mapa,
-    aba_temporal,
-    aba_especies,
-    aba_comparacao,
-    aba_relatorio,
-    aba_qualidade,
-    aba_dados,
-) = st.tabs(
+aba_visao, aba_mapa, aba_temporal, aba_qualidade = st.tabs(
     [
         t("overview"),
         t("map"),
-        t("temporal"),
-        t("species"),
-        t("comparison"),
-        t("report"),
-        t("quality"),
-        t("data"),
+        t("temporal_analysis"),
+        t("data_quality"),
     ]
 )
 
@@ -652,6 +639,11 @@ with aba_visao:
             width="stretch",
             config={"displayModeBar": False},
         )
+
+    secao_especies = st.expander(t("species"))
+    secao_comparacao = st.expander(t("comparison"))
+    secao_relatorio = st.expander(t("report"))
+    secao_dados = st.expander(t("data"))
     with coluna_origem:
         figura = px.bar(
             origens_tabela,
@@ -841,7 +833,7 @@ with aba_temporal:
         config={"displayModeBar": False},
     )
 
-with aba_especies:
+with secao_especies:
     st.subheader(t("taxonomic_catalog"))
     busca_taxonomica = st.text_input(
         t("search_scientific_name"),
@@ -873,7 +865,7 @@ with aba_especies:
         height=520,
     )
 
-with aba_comparacao:
+with secao_comparacao:
     st.subheader(t("country_comparison"))
     coluna_pais_a, coluna_pais_b = st.columns(2)
     with coluna_pais_a:
@@ -1120,7 +1112,7 @@ with aba_comparacao:
                 + "</div>"
             )
 
-with aba_relatorio:
+with secao_relatorio:
     st.subheader(t("automatic_report"))
     st.caption(t("report_description"))
     nomes_selecionados = [nomes_especies[chave] for chave in especies]
@@ -1138,7 +1130,7 @@ with aba_relatorio:
         t("record_type"): ", ".join(tipos) or t("all_record_types"),
         t("administrative_unit"): ", ".join(rotulo_estado(item) for item in estados)
         or t("all_units"),
-        t("source_update"): ultima_atualizacao,
+        t("source_update"): ultima_atualizacao or t("not_available"),
     }
     st.markdown(
         t(
@@ -1304,7 +1296,7 @@ with aba_qualidade:
         )
     st.html(f'<div class="quality-note">{t("gbif_alert_note")}</div>')
 
-with aba_dados:
+with secao_dados:
     busca = st.text_input(
         t("search_records"),
         placeholder=t("search_records_placeholder"),

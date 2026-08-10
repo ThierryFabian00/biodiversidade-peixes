@@ -135,19 +135,25 @@ class TestStreamlitApp(unittest.TestCase):
             [
                 "Visão geral",
                 "Mapa",
-                "Temporal",
-                "Espécies",
-                "Comparação",
-                "Relatório",
-                "Qualidade",
-                "Dados",
+                "Análise temporal",
+                "Qualidade dos dados",
             ],
         )
         metricas = {metrica.label: metrica.value for metrica in app.metric}
         self.assertEqual(metricas["Ocorrências"], "3.764")
         self.assertEqual(metricas["Espécies"], "352")
-        self.assertEqual(metricas["Fonte"], "PostgreSQL")
         self.assertNotEqual(metricas["Última atualização"], "Não disponível")
+        self.assertEqual(
+            [metrica.label for metrica in app.metric[:4]],
+            ["Ocorrências", "Espécies", "Período", "Última atualização"],
+        )
+        self.assertNotIn("Fonte", [metrica.label for metrica in app.metric[:4]])
+        self.assertTrue(
+            all(
+                rotulo in [item.label for item in app.expander]
+                for rotulo in ("Espécies", "Comparação", "Relatório", "Dados")
+            )
+        )
         self.assertEqual(metricas["Recebidos"], "5.000")
         self.assertEqual(metricas["Aproveitados"], "3.764")
         self.assertEqual(metricas["Descartados"], "1.236")
